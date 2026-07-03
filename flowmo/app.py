@@ -58,6 +58,7 @@ class FlowmoApp(tk.Tk):
         self.current_category: str | None = None
         self.break_remaining_seconds = 0
         self.break_timer_job: str | None = None
+        self.category_cell_editor: ttk.Combobox | None = None
         self.language = normalize_language(self.store.get_language())
 
         self.category_var = tk.StringVar(value="")
@@ -176,10 +177,12 @@ class FlowmoApp(tk.Tk):
             self.history.column(column, width=width, anchor="w")
         self.history.grid(row=0, column=0, sticky="nsew")
 
-        history_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.history.yview)
+        history_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self._scroll_history)
         history_scroll.grid(row=0, column=1, sticky="ns")
         self.history.configure(yscrollcommand=history_scroll.set)
-        self.history.bind("<Double-1>", self._open_category_cell_editor)
+        self.history.bind("<<TreeviewSelect>>", self._show_selected_category_editor)
+        self.history.bind("<Configure>", lambda _event: self._close_category_cell_editor())
+        self.history.bind("<MouseWheel>", lambda _event: self._close_category_cell_editor())
 
         self._build_visualization_tab(visualization_frame)
         self._build_calendar_tab(calendar_frame)
@@ -456,6 +459,7 @@ class FlowmoApp(tk.Tk):
         self.break_timer_job = self.after(1000, self._run_break_timer)
 
     def _refresh_log(self) -> None:
+        self._close_category_cell_editor()
         self.history.delete(*self.history.get_children())
         for session in self.store.recent_sessions():
             self.history.insert(
@@ -473,28 +477,33 @@ class FlowmoApp(tk.Tk):
                 ),
             )
 
-    def _open_category_cell_editor(self, event: tk.Event) -> None:
-        row_id = self.history.identify_row(event.y)
-        column_id = self.history.identify_column(event.x)
-        if not row_id or column_id != "#1":
+    def _scroll_history(self, *args) -> None:
+        self._close_category_cell_editor()
+        self.history.yview(*args)
+
+    def _close_category_cell_editor(self) -> None:
+        if self.category_cell_editor is not None and self.category_cell_editor.winfo_exists():
+            self.category_cell_editor.destroy()
+        self.category_cell_editor = None
+
+    def _show_selected_category_editor(self, _event: tk.Event | None = None) -> None:
+        self._close_category_cell_editor()
+        selected = self.history.selection()
+        if not selected:
             return
 
+        row_id = selected[0]
         session_id = int(row_id)
         session = next(
             (item for item in self.store.recent_sessions() if item.id == session_id),
             None,
         )
         if session is None:
-            messagebox.showerror(self.t("category_edit_error"), "Session not found.")
             return
         if session.category_edit_used:
-            messagebox.showwarning(
-                self.t("edit_category_title"),
-                self.t("cannot_edit_category_twice"),
-            )
             return
 
-        cell_box = self.history.bbox(row_id, column_id)
+        cell_box = self.history.bbox(row_id, "#1")
         if not cell_box:
             return
         x, y, width, height = cell_box
@@ -513,21 +522,15 @@ class FlowmoApp(tk.Tk):
             state="readonly",
         )
         editor.place(x=x, y=y, width=width, height=height)
-        editor.focus_set()
-
-        def close_editor() -> None:
-            if editor.winfo_exists():
-                editor.destroy()
+        self.category_cell_editor = editor
 
         def on_select(_event: tk.Event) -> None:
             selected_label = editor_var.get()
-            close_editor()
+            self._close_category_cell_editor()
             self._confirm_category_edit(session_id, session.category, selected_label)
 
         editor.bind("<<ComboboxSelected>>", on_select)
-        editor.bind("<Escape>", lambda _event: close_editor())
-        editor.bind("<FocusOut>", lambda _event: self.after(150, close_editor))
-        editor.event_generate("<Button-1>")
+        editor.bind("<Escape>", lambda _event: self._close_category_cell_editor())
 
     def _confirm_category_edit(
         self, session_id: int, old_category: str, category_label_value: str
