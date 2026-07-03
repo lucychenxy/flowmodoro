@@ -42,7 +42,7 @@ class FlowmoApp(tk.Tk):
         self.coefficient_var = tk.StringVar(value=f"{self.store.get_break_coefficient():.1f}")
         self.summary_period_var = tk.StringVar(value="week")
         self.visual_range_var = tk.StringVar(value="week")
-        self.break_var = tk.StringVar(value="休息时间会在结束 session 后计算")
+        self.break_var = tk.StringVar(value="开始 session 后会在这里显示状态")
 
         self._build_ui()
         self._refresh_history()
@@ -216,6 +216,7 @@ class FlowmoApp(tk.Tk):
     def _start_session(self) -> None:
         self._save_coefficient()
         self.current_start = utc_now_without_microseconds()
+        self.break_remaining_seconds = 0
         self.timer_var.set("00:00:00")
         self.status_var.set(f"开始于 {self.current_start.strftime('%Y-%m-%d %H:%M:%S')}")
         self.break_var.set("当前正在工作")
@@ -248,7 +249,7 @@ class FlowmoApp(tk.Tk):
         self.current_start = None
         self.start_button.configure(state="normal")
         self.stop_button.configure(state="disabled")
-        self.status_var.set("Session 已保存")
+        self.status_var.set("休息中")
         self.break_remaining_seconds = session.break_seconds
         self._refresh_history()
         self._refresh_summary()
@@ -275,12 +276,15 @@ class FlowmoApp(tk.Tk):
 
     def _run_break_timer(self) -> None:
         if self.break_remaining_seconds <= 0:
-            self.break_var.set("建议休息结束，可以继续开始下一段工作")
+            self.timer_var.set("00:00:00")
+            self.status_var.set("休息结束")
+            self.break_var.set("可以继续开始下一段工作")
             messagebox.showinfo("Flowmo", "休息时间结束，可以继续工作。")
             self.break_timer_job = None
             return
 
-        self.break_var.set(f"建议休息剩余 {format_duration(self.break_remaining_seconds)}")
+        self.timer_var.set(format_duration(self.break_remaining_seconds))
+        self.break_var.set("建议休息中")
         self.break_remaining_seconds -= 1
         self.break_timer_job = self.after(1000, self._run_break_timer)
 
