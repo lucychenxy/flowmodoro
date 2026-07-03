@@ -32,3 +32,6 @@ python -m unittest
 The database and session logic are kept separate from the Tkinter UI. A future
 Linux desktop, Android, web, or wearable client can reuse the SQLite schema or
 sync against the same session model.
+
+## Declaration of AI Use
+Flowmo is my first vibe coding work - more than 90% of the code are written by codex
