@@ -28,6 +28,13 @@ class FlowmoStoreTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.store.set_break_coefficient(3)
 
+    def test_language_setting_defaults_to_english_and_can_be_changed(self) -> None:
+        self.assertEqual(self.store.get_language(), "en")
+
+        self.store.set_language("de")
+
+        self.assertEqual(self.store.get_language(), "de")
+
     def test_summary_groups_by_month(self) -> None:
         start = datetime(2026, 7, 3, 9, 0, 0)
         self.store.add_session("写作", "Draft", start, start + timedelta(hours=2), coefficient=5)

@@ -12,6 +12,14 @@ from flowmo.db import (
     format_duration,
     utc_now_without_microseconds,
 )
+from flowmo.i18n import (
+    LANGUAGES,
+    WEEKDAYS,
+    category_from_label,
+    category_label,
+    normalize_language,
+    text,
+)
 
 
 CATEGORY_COLORS = {
@@ -23,18 +31,18 @@ CATEGORY_COLORS = {
     "后勤": "#76B7B2",
 }
 
-RANGE_LABELS = {
-    "day": "今天",
-    "week": "本周",
-    "month": "本月",
-    "year": "今年",
+RANGE_LABEL_KEYS = {
+    "day": "today",
+    "week": "this_week",
+    "month": "this_month",
+    "year": "this_year",
 }
 
-HISTORY_RANGE_LABELS = {
-    "day": "日",
-    "week": "周",
-    "month": "月",
-    "year": "年",
+HISTORY_RANGE_LABEL_KEYS = {
+    "day": "day",
+    "week": "week",
+    "month": "month",
+    "year": "year",
 }
 
 
@@ -49,15 +57,17 @@ class FlowmoApp(tk.Tk):
         self.current_start: datetime | None = None
         self.break_remaining_seconds = 0
         self.break_timer_job: str | None = None
+        self.language = normalize_language(self.store.get_language())
 
-        self.category_var = tk.StringVar(value=CATEGORIES[0])
+        self.category_var = tk.StringVar(value=category_label(self.language, CATEGORIES[0]))
         self.timer_var = tk.StringVar(value="00:00:00")
-        self.status_var = tk.StringVar(value="准备开始")
+        self.status_var = tk.StringVar(value=self.t("ready"))
         self.coefficient_var = tk.StringVar(value=f"{self.store.get_break_coefficient():.1f}")
         self.visual_range_var = tk.StringVar(value="week")
         self.history_range_var = tk.StringVar(value="day")
         self.calendar_date_var = tk.StringVar(value=date.today().isoformat())
-        self.break_var = tk.StringVar(value="开始 session 后会在这里显示状态")
+        self.language_var = tk.StringVar(value=LANGUAGES[self.language])
+        self.break_var = tk.StringVar(value=self.t("status_hint"))
 
         self._build_ui()
         self._refresh_log()
@@ -67,6 +77,9 @@ class FlowmoApp(tk.Tk):
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
+    def t(self, key: str, **kwargs) -> str:
+        return text(self.language, key, **kwargs)
+
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
@@ -75,16 +88,16 @@ class FlowmoApp(tk.Tk):
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(1, weight=1)
 
-        ttk.Label(top, text="类别").grid(row=0, column=0, sticky="w")
+        ttk.Label(top, text=self.t("category")).grid(row=0, column=0, sticky="w")
         ttk.Combobox(
             top,
             textvariable=self.category_var,
-            values=CATEGORIES,
+            values=[category_label(self.language, category) for category in CATEGORIES],
             state="readonly",
             width=12,
         ).grid(row=0, column=1, sticky="w", padx=(8, 24))
 
-        ttk.Label(top, text="休息系数").grid(row=0, column=2, sticky="e")
+        ttk.Label(top, text=self.t("break_coefficient")).grid(row=0, column=2, sticky="e")
         coefficient = ttk.Spinbox(
             top,
             from_=3.1,
@@ -97,9 +110,20 @@ class FlowmoApp(tk.Tk):
         coefficient.grid(row=0, column=3, sticky="w", padx=(8, 0))
         coefficient.bind("<FocusOut>", lambda _event: self._save_coefficient())
 
-        ttk.Label(top, text="具体任务").grid(row=1, column=0, sticky="nw", pady=(12, 0))
+        ttk.Label(top, text=self.t("language")).grid(row=0, column=4, sticky="e", padx=(24, 0))
+        language_combo = ttk.Combobox(
+            top,
+            textvariable=self.language_var,
+            values=list(LANGUAGES.values()),
+            state="readonly",
+            width=12,
+        )
+        language_combo.grid(row=0, column=5, sticky="w", padx=(8, 0))
+        language_combo.bind("<<ComboboxSelected>>", lambda _event: self._change_language())
+
+        ttk.Label(top, text=self.t("task")).grid(row=1, column=0, sticky="nw", pady=(12, 0))
         self.task_text = tk.Text(top, height=3, wrap="word")
-        self.task_text.grid(row=1, column=1, columnspan=3, sticky="ew", padx=(8, 0), pady=(12, 0))
+        self.task_text.grid(row=1, column=1, columnspan=5, sticky="ew", padx=(8, 0), pady=(12, 0))
 
         timer_frame = ttk.Frame(self, padding=(16, 0, 16, 16))
         timer_frame.grid(row=1, column=0, sticky="ew")
@@ -111,10 +135,10 @@ class FlowmoApp(tk.Tk):
         ttk.Label(timer_frame, textvariable=self.status_var).grid(row=1, column=0, sticky="w")
         ttk.Label(timer_frame, textvariable=self.break_var).grid(row=2, column=0, sticky="w")
 
-        self.start_button = ttk.Button(timer_frame, text="开始", command=self._start_session)
+        self.start_button = ttk.Button(timer_frame, text=self.t("start"), command=self._start_session)
         self.start_button.grid(row=0, column=1, padx=(16, 8), sticky="e")
         self.stop_button = ttk.Button(
-            timer_frame, text="结束", command=self._stop_session, state="disabled"
+            timer_frame, text=self.t("stop"), command=self._stop_session, state="disabled"
         )
         self.stop_button.grid(row=0, column=2, sticky="e")
 
@@ -124,9 +148,9 @@ class FlowmoApp(tk.Tk):
         visualization_frame = ttk.Frame(notebook, padding=8)
         calendar_frame = ttk.Frame(notebook, padding=8)
         log_frame = ttk.Frame(notebook, padding=8)
-        notebook.add(visualization_frame, text="最近")
-        notebook.add(calendar_frame, text="历史记录")
-        notebook.add(log_frame, text="日志")
+        notebook.add(visualization_frame, text=self.t("recent"))
+        notebook.add(calendar_frame, text=self.t("history"))
+        notebook.add(log_frame, text=self.t("log"))
 
         log_frame.rowconfigure(0, weight=1)
         log_frame.columnconfigure(0, weight=1)
@@ -137,12 +161,12 @@ class FlowmoApp(tk.Tk):
             height=12,
         )
         for column, label, width in (
-            ("category", "类别", 80),
-            ("task", "任务", 240),
-            ("start", "开始", 150),
-            ("end", "结束", 150),
-            ("duration", "工作时长", 90),
-            ("break", "建议休息", 90),
+            ("category", self.t("category_column"), 90),
+            ("task", self.t("task_column"), 240),
+            ("start", self.t("start_column"), 150),
+            ("end", self.t("end_column"), 150),
+            ("duration", self.t("duration_column"), 100),
+            ("break", self.t("break_column"), 120),
         ):
             self.history.heading(column, text=label)
             self.history.column(column, width=width, anchor="w")
@@ -162,10 +186,10 @@ class FlowmoApp(tk.Tk):
 
         controls = ttk.Frame(parent)
         controls.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        for index, (range_name, label) in enumerate(RANGE_LABELS.items()):
+        for index, (range_name, label_key) in enumerate(RANGE_LABEL_KEYS.items()):
             ttk.Radiobutton(
                 controls,
-                text=label,
+                text=self.t(label_key),
                 variable=self.visual_range_var,
                 value=range_name,
                 command=self._refresh_visualization,
@@ -182,7 +206,9 @@ class FlowmoApp(tk.Tk):
             swatch = tk.Canvas(legend, width=14, height=14, highlightthickness=0)
             swatch.create_rectangle(1, 1, 13, 13, fill=CATEGORY_COLORS[category], outline="")
             swatch.grid(row=0, column=index * 2, sticky="w", padx=(0 if index == 0 else 12, 4))
-            ttk.Label(legend, text=category).grid(row=0, column=index * 2 + 1, sticky="w")
+            ttk.Label(legend, text=category_label(self.language, category)).grid(
+                row=0, column=index * 2 + 1, sticky="w"
+            )
 
         self.bar_canvas.bind("<Configure>", lambda _event: self._draw_visualization())
         self.pie_canvas.bind("<Configure>", lambda _event: self._draw_visualization())
@@ -194,16 +220,16 @@ class FlowmoApp(tk.Tk):
 
         controls = ttk.Frame(parent)
         controls.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        for index, (range_name, label) in enumerate(HISTORY_RANGE_LABELS.items()):
+        for index, (range_name, label_key) in enumerate(HISTORY_RANGE_LABEL_KEYS.items()):
             ttk.Radiobutton(
                 controls,
-                text=label,
+                text=self.t(label_key),
                 variable=self.history_range_var,
                 value=range_name,
                 command=self._refresh_calendar,
             ).grid(row=0, column=index, sticky="w", padx=(0 if index == 0 else 12, 0))
 
-        ttk.Label(controls, text="参考日期").grid(row=0, column=4, sticky="w", padx=(24, 0))
+        ttk.Label(controls, text=self.t("reference_date")).grid(row=0, column=4, sticky="w", padx=(24, 0))
         date_entry = ttk.Entry(
             controls,
             textvariable=self.calendar_date_var,
@@ -226,7 +252,9 @@ class FlowmoApp(tk.Tk):
             swatch = tk.Canvas(legend, width=14, height=14, highlightthickness=0)
             swatch.create_rectangle(1, 1, 13, 13, fill=CATEGORY_COLORS[category], outline="")
             swatch.grid(row=0, column=index * 2, sticky="w", padx=(0 if index == 0 else 12, 4))
-            ttk.Label(legend, text=category).grid(row=0, column=index * 2 + 1, sticky="w")
+            ttk.Label(legend, text=category_label(self.language, category)).grid(
+                row=0, column=index * 2 + 1, sticky="w"
+            )
 
         self.calendar_bar_canvas.bind("<Configure>", lambda _event: self._draw_calendar())
         self.calendar_pie_canvas.bind("<Configure>", lambda _event: self._draw_calendar())
@@ -238,7 +266,7 @@ class FlowmoApp(tk.Tk):
             selected_date = date.today()
 
         picker = tk.Toplevel(self)
-        picker.title("选择日期")
+        picker.title(self.t("date_picker_title"))
         picker.resizable(False, False)
         picker.transient(self)
         picker.grab_set()
@@ -272,7 +300,7 @@ class FlowmoApp(tk.Tk):
 
         body = ttk.Frame(picker, padding=(8, 4, 8, 8))
         body.grid(row=1, column=0, sticky="nsew")
-        for index, weekday in enumerate(("一", "二", "三", "四", "五", "六", "日")):
+        for index, weekday in enumerate(WEEKDAYS[self.language]):
             ttk.Label(body, text=weekday, width=4, anchor="center").grid(row=0, column=index)
 
         month_days = calendar.Calendar(firstweekday=0).monthdatescalendar(year, month)
@@ -293,13 +321,57 @@ class FlowmoApp(tk.Tk):
         picker.destroy()
         self._refresh_calendar()
 
+    def _change_language(self) -> None:
+        selected_language = next(
+            (code for code, label in LANGUAGES.items() if label == self.language_var.get()),
+            "en",
+        )
+        if selected_language == self.language:
+            return
+
+        selected_category = category_from_label(self.language, self.category_var.get())
+        task_text = self.task_text.get("1.0", "end").strip() if hasattr(self, "task_text") else ""
+        self.language = selected_language
+        self.store.set_language(selected_language)
+        self.category_var.set(category_label(self.language, selected_category))
+        self.language_var.set(LANGUAGES[self.language])
+        self._sync_status_language()
+
+        for child in self.winfo_children():
+            child.destroy()
+        self._build_ui()
+        if self.current_start is not None:
+            self.start_button.configure(state="disabled")
+            self.stop_button.configure(state="normal")
+        if task_text:
+            self.task_text.insert("1.0", task_text)
+        self._refresh_log()
+        self._refresh_visualization()
+        self._refresh_calendar()
+
+    def _sync_status_language(self) -> None:
+        if self.current_start is not None:
+            self.status_var.set(
+                self.t("started_at", time=self.current_start.strftime("%Y-%m-%d %H:%M:%S"))
+            )
+            self.break_var.set(self.t("working"))
+            return
+        if self.break_timer_job is not None:
+            self.status_var.set(self.t("resting"))
+            self.break_var.set(self.t("break_active"))
+            return
+        self.status_var.set(self.t("ready"))
+        self.break_var.set(self.t("status_hint"))
+
     def _start_session(self) -> None:
         self._save_coefficient()
         self.current_start = utc_now_without_microseconds()
         self.break_remaining_seconds = 0
         self.timer_var.set("00:00:00")
-        self.status_var.set(f"开始于 {self.current_start.strftime('%Y-%m-%d %H:%M:%S')}")
-        self.break_var.set("当前正在工作")
+        self.status_var.set(
+            self.t("started_at", time=self.current_start.strftime("%Y-%m-%d %H:%M:%S"))
+        )
+        self.break_var.set(self.t("working"))
         self.start_button.configure(state="disabled")
         self.stop_button.configure(state="normal")
 
@@ -316,20 +388,20 @@ class FlowmoApp(tk.Tk):
         coefficient = self._save_coefficient()
         try:
             session = self.store.add_session(
-                category=self.category_var.get(),
+                category=category_from_label(self.language, self.category_var.get()),
                 task=task,
                 start_time=self.current_start,
                 end_time=end_time,
                 coefficient=coefficient,
             )
         except ValueError as exc:
-            messagebox.showerror("无法保存 session", str(exc))
+            messagebox.showerror(self.t("save_error_title"), str(exc))
             return
 
         self.current_start = None
         self.start_button.configure(state="normal")
         self.stop_button.configure(state="disabled")
-        self.status_var.set("休息中")
+        self.status_var.set(self.t("resting"))
         self.break_remaining_seconds = session.break_seconds
         self._refresh_log()
         self._refresh_visualization()
@@ -343,7 +415,7 @@ class FlowmoApp(tk.Tk):
             self.coefficient_var.set(f"{coefficient:.1f}")
             return coefficient
         except ValueError as exc:
-            messagebox.showerror("休息系数无效", str(exc))
+            messagebox.showerror(self.t("coefficient_error_title"), str(exc))
             current = self.store.get_break_coefficient()
             self.coefficient_var.set(f"{current:.1f}")
             return current
@@ -357,14 +429,14 @@ class FlowmoApp(tk.Tk):
     def _run_break_timer(self) -> None:
         if self.break_remaining_seconds <= 0:
             self.timer_var.set("00:00:00")
-            self.status_var.set("休息结束")
-            self.break_var.set("可以继续开始下一段工作")
-            messagebox.showinfo("Flowmo", "休息时间结束，可以继续工作。")
+            self.status_var.set(self.t("break_done_status"))
+            self.break_var.set(self.t("break_done_hint"))
+            messagebox.showinfo("Flowmo", self.t("break_done_dialog"))
             self.break_timer_job = None
             return
 
         self.timer_var.set(format_duration(self.break_remaining_seconds))
-        self.break_var.set("建议休息中")
+        self.break_var.set(self.t("break_active"))
         self.break_remaining_seconds -= 1
         self.break_timer_job = self.after(1000, self._run_break_timer)
 
@@ -375,7 +447,7 @@ class FlowmoApp(tk.Tk):
                 "",
                 "end",
                 values=(
-                    session.category,
+                    category_label(self.language, session.category),
                     session.task,
                     session.start_time.strftime("%Y-%m-%d %H:%M:%S"),
                     session.end_time.strftime("%Y-%m-%d %H:%M:%S"),
@@ -395,7 +467,9 @@ class FlowmoApp(tk.Tk):
             return
 
         range_name = self.visual_range_var.get()
-        self._draw_charts(self.bar_canvas, self.pie_canvas, range_name, None, RANGE_LABELS[range_name])
+        self._draw_charts(
+            self.bar_canvas, self.pie_canvas, range_name, None, self.t(RANGE_LABEL_KEYS[range_name])
+        )
 
     def _draw_calendar(self) -> None:
         if not hasattr(self, "calendar_bar_canvas") or not hasattr(self, "calendar_pie_canvas"):
@@ -440,13 +514,13 @@ class FlowmoApp(tk.Tk):
             16,
             18,
             anchor="w",
-            text=f"{title_label}各时段工作分布",
+            text=self.t("work_distribution", title=title_label),
             font=("Segoe UI", 12, "bold"),
         )
 
         max_seconds = max((row.total_seconds for row in bucket_rows), default=0)
         if max_seconds <= 0:
-            self._draw_empty_state(canvas, width, height, "当前范围还没有工作记录")
+            self._draw_empty_state(canvas, width, height, self.t("no_records"))
             return
 
         y_axis_bottom = margin_top + chart_height
@@ -505,7 +579,11 @@ class FlowmoApp(tk.Tk):
             margin_left,
             height - 24,
             anchor="w",
-            text=f"最高时段：{busiest.label}，{self._format_hours(busiest.total_seconds)}",
+            text=self.t(
+                "busiest",
+                label=busiest.label,
+                duration=self._format_hours(busiest.total_seconds),
+            ),
             font=("Segoe UI", 9),
             fill="#333333",
         )
@@ -519,20 +597,20 @@ class FlowmoApp(tk.Tk):
             16,
             18,
             anchor="w",
-            text=f"{title_label}类别占比",
+            text=self.t("category_share", title=title_label),
             font=("Segoe UI", 12, "bold"),
         )
 
         total_seconds = sum(row.total_seconds for row in category_rows)
         if total_seconds <= 0:
-            self._draw_empty_state(canvas, width, height, "当前范围还没有工作记录")
+            self._draw_empty_state(canvas, width, height, self.t("no_records"))
             return
 
         canvas.create_text(
             16,
             42,
             anchor="w",
-            text=f"总工作时长：{self._format_hours(total_seconds)}",
+            text=self.t("total_work", duration=self._format_hours(total_seconds)),
             font=("Segoe UI", 10),
             fill="#333333",
         )
@@ -575,7 +653,10 @@ class FlowmoApp(tk.Tk):
                 legend_x + 18,
                 y + 6,
                 anchor="w",
-                text=f"{row.category} {self._format_hours(row.total_seconds)} ({percent:.1f}%)",
+                text=(
+                    f"{category_label(self.language, row.category)} "
+                    f"{self._format_hours(row.total_seconds)} ({percent:.1f}%)"
+                ),
                 font=("Segoe UI", 9),
                 fill="#333333",
             )
@@ -593,8 +674,8 @@ class FlowmoApp(tk.Tk):
         hours = seconds / 3600
         if hours < 1:
             minutes = int(round(seconds / 60))
-            return f"{minutes} 分钟"
-        return f"{hours:.1f} 小时"
+            return self.t("minutes", value=minutes)
+        return self.t("hours", value=hours)
 
     def _history_title(self, range_name: str, reference_date: date) -> str:
         if range_name == "day":
@@ -602,7 +683,7 @@ class FlowmoApp(tk.Tk):
         if range_name == "week":
             start_time, end_time = build_range_bounds("week", reference_date)
             end_date = (end_time.date() - timedelta(days=1)).isoformat()
-            return f"{start_time.date().isoformat()} 至 {end_date}"
+            return self.t("week_range", start=start_time.date().isoformat(), end=end_date)
         if range_name == "month":
             return f"{reference_date.year}-{reference_date.month:02d}"
         if range_name == "year":
@@ -612,8 +693,8 @@ class FlowmoApp(tk.Tk):
     def _on_close(self) -> None:
         if self.current_start is not None:
             should_close = messagebox.askyesno(
-                "正在计时",
-                "当前 session 还没有结束。关闭窗口会丢弃这段未保存计时，是否继续？",
+                self.t("close_title"),
+                self.t("close_message"),
             )
             if not should_close:
                 return

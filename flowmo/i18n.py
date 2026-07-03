@@ -1,0 +1,215 @@
+from __future__ import annotations
+
+
+LANGUAGES = {
+    "en": "English",
+    "zh": "中文",
+    "de": "Deutsch",
+}
+
+CATEGORY_LABELS = {
+    "en": {
+        "阅读": "Reading",
+        "实验": "Experiments",
+        "写作": "Writing",
+        "教学": "Teaching",
+        "会议": "Meetings",
+        "后勤": "Admin",
+    },
+    "zh": {
+        "阅读": "阅读",
+        "实验": "实验",
+        "写作": "写作",
+        "教学": "教学",
+        "会议": "会议",
+        "后勤": "后勤",
+    },
+    "de": {
+        "阅读": "Lesen",
+        "实验": "Experimente",
+        "写作": "Schreiben",
+        "教学": "Lehre",
+        "会议": "Besprechungen",
+        "后勤": "Organisation",
+    },
+}
+
+TEXT = {
+    "en": {
+        "ready": "Ready",
+        "status_hint": "Session status will appear here",
+        "category": "Category",
+        "break_coefficient": "Break coefficient",
+        "task": "Task",
+        "start": "Start",
+        "stop": "Stop",
+        "recent": "Recent",
+        "history": "History",
+        "log": "Log",
+        "language": "Language",
+        "today": "Today",
+        "this_week": "This week",
+        "this_month": "This month",
+        "this_year": "This year",
+        "day": "Day",
+        "week": "Week",
+        "month": "Month",
+        "year": "Year",
+        "reference_date": "Reference date",
+        "choose_date": "Choose date",
+        "started_at": "Started at {time}",
+        "working": "Working",
+        "resting": "Resting",
+        "break_active": "Suggested break",
+        "break_done_status": "Break finished",
+        "break_done_hint": "You can start the next session",
+        "break_done_dialog": "Break time is over. You can continue working.",
+        "save_error_title": "Could not save session",
+        "coefficient_error_title": "Invalid break coefficient",
+        "close_title": "Session running",
+        "close_message": "The current session has not ended. Closing the window will discard this unsaved timer. Continue?",
+        "date_picker_title": "Choose date",
+        "work_distribution": "{title} work distribution by hour",
+        "category_share": "{title} category share",
+        "no_records": "No work records in this range",
+        "total_work": "Total work time: {duration}",
+        "busiest": "Busiest hour: {label}, {duration}",
+        "minutes": "{value} min",
+        "hours": "{value:.1f} h",
+        "category_column": "Category",
+        "task_column": "Task",
+        "start_column": "Start",
+        "end_column": "End",
+        "duration_column": "Work time",
+        "break_column": "Suggested break",
+        "week_range": "{start} to {end}",
+    },
+    "zh": {
+        "ready": "准备开始",
+        "status_hint": "开始 session 后会在这里显示状态",
+        "category": "类别",
+        "break_coefficient": "休息系数",
+        "task": "具体任务",
+        "start": "开始",
+        "stop": "结束",
+        "recent": "最近",
+        "history": "历史记录",
+        "log": "日志",
+        "language": "语言",
+        "today": "今天",
+        "this_week": "本周",
+        "this_month": "本月",
+        "this_year": "今年",
+        "day": "日",
+        "week": "周",
+        "month": "月",
+        "year": "年",
+        "reference_date": "参考日期",
+        "choose_date": "选择日期",
+        "started_at": "开始于 {time}",
+        "working": "当前正在工作",
+        "resting": "休息中",
+        "break_active": "建议休息中",
+        "break_done_status": "休息结束",
+        "break_done_hint": "可以继续开始下一段工作",
+        "break_done_dialog": "休息时间结束，可以继续工作。",
+        "save_error_title": "无法保存 session",
+        "coefficient_error_title": "休息系数无效",
+        "close_title": "正在计时",
+        "close_message": "当前 session 还没有结束。关闭窗口会丢弃这段未保存计时，是否继续？",
+        "date_picker_title": "选择日期",
+        "work_distribution": "{title}各时段工作分布",
+        "category_share": "{title}类别占比",
+        "no_records": "当前范围还没有工作记录",
+        "total_work": "总工作时长：{duration}",
+        "busiest": "最高时段：{label}，{duration}",
+        "minutes": "{value} 分钟",
+        "hours": "{value:.1f} 小时",
+        "category_column": "类别",
+        "task_column": "任务",
+        "start_column": "开始",
+        "end_column": "结束",
+        "duration_column": "工作时长",
+        "break_column": "建议休息",
+        "week_range": "{start} 至 {end}",
+    },
+    "de": {
+        "ready": "Bereit",
+        "status_hint": "Der Sitzungsstatus erscheint hier",
+        "category": "Kategorie",
+        "break_coefficient": "Pausenfaktor",
+        "task": "Aufgabe",
+        "start": "Start",
+        "stop": "Stopp",
+        "recent": "Aktuell",
+        "history": "Verlauf",
+        "log": "Protokoll",
+        "language": "Sprache",
+        "today": "Heute",
+        "this_week": "Diese Woche",
+        "this_month": "Dieser Monat",
+        "this_year": "Dieses Jahr",
+        "day": "Tag",
+        "week": "Woche",
+        "month": "Monat",
+        "year": "Jahr",
+        "reference_date": "Bezugsdatum",
+        "choose_date": "Datum wählen",
+        "started_at": "Begonnen um {time}",
+        "working": "Arbeit läuft",
+        "resting": "Pause",
+        "break_active": "Empfohlene Pause",
+        "break_done_status": "Pause beendet",
+        "break_done_hint": "Du kannst die nächste Sitzung starten",
+        "break_done_dialog": "Die Pause ist vorbei. Du kannst weiterarbeiten.",
+        "save_error_title": "Sitzung konnte nicht gespeichert werden",
+        "coefficient_error_title": "Ungültiger Pausenfaktor",
+        "close_title": "Sitzung läuft",
+        "close_message": "Die aktuelle Sitzung ist noch nicht beendet. Beim Schließen geht diese ungespeicherte Zeit verloren. Fortfahren?",
+        "date_picker_title": "Datum wählen",
+        "work_distribution": "{title} Arbeitsverteilung nach Stunde",
+        "category_share": "{title} Kategorienanteil",
+        "no_records": "Keine Arbeitsdaten in diesem Zeitraum",
+        "total_work": "Gesamtarbeitszeit: {duration}",
+        "busiest": "Stärkste Stunde: {label}, {duration}",
+        "minutes": "{value} Min.",
+        "hours": "{value:.1f} Std.",
+        "category_column": "Kategorie",
+        "task_column": "Aufgabe",
+        "start_column": "Start",
+        "end_column": "Ende",
+        "duration_column": "Arbeitszeit",
+        "break_column": "Empfohlene Pause",
+        "week_range": "{start} bis {end}",
+    },
+}
+
+WEEKDAYS = {
+    "en": ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
+    "zh": ("一", "二", "三", "四", "五", "六", "日"),
+    "de": ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"),
+}
+
+
+def normalize_language(language: str) -> str:
+    return language if language in LANGUAGES else "en"
+
+
+def text(language: str, key: str, **kwargs) -> str:
+    language = normalize_language(language)
+    template = TEXT[language].get(key, TEXT["en"][key])
+    return template.format(**kwargs)
+
+
+def category_label(language: str, category: str) -> str:
+    language = normalize_language(language)
+    return CATEGORY_LABELS[language].get(category, category)
+
+
+def category_from_label(language: str, label: str) -> str:
+    language = normalize_language(language)
+    labels = CATEGORY_LABELS[language]
+    for category, translated in labels.items():
+        if translated == label:
+            return category
+    return label

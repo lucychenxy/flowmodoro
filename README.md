@@ -6,6 +6,7 @@ Current scope:
 
 - Windows-first Python desktop app using Tkinter.
 - Local SQLite database for sessions and settings.
+- Interface languages: English by default, with Chinese and German available.
 - Work categories: reading, experiments, writing, teaching, meetings, admin.
 - Forward timer with start/end buttons.
 - Rest duration calculated as `work duration / break coefficient`.

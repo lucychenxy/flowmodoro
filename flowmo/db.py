@@ -8,6 +8,7 @@ from pathlib import Path
 
 DEFAULT_DB_PATH = Path("data") / "flowmo.sqlite3"
 DEFAULT_BREAK_COEFFICIENT = 5.0
+DEFAULT_LANGUAGE = "en"
 MIN_BREAK_COEFFICIENT = 3.0
 
 CATEGORIES = (
@@ -107,14 +108,16 @@ class FlowmoStore:
                 """,
                 (str(DEFAULT_BREAK_COEFFICIENT),),
             )
+            self.connection.execute(
+                """
+                INSERT OR IGNORE INTO settings (key, value)
+                VALUES ('language', ?)
+                """,
+                (DEFAULT_LANGUAGE,),
+            )
 
     def get_break_coefficient(self) -> float:
-        row = self.connection.execute(
-            "SELECT value FROM settings WHERE key = 'break_coefficient'"
-        ).fetchone()
-        if row is None:
-            return DEFAULT_BREAK_COEFFICIENT
-        return float(row["value"])
+        return float(self.get_setting("break_coefficient", str(DEFAULT_BREAK_COEFFICIENT)))
 
     def set_break_coefficient(self, coefficient: float) -> None:
         if coefficient <= MIN_BREAK_COEFFICIENT:
@@ -127,6 +130,29 @@ class FlowmoStore:
                 ON CONFLICT(key) DO UPDATE SET value = excluded.value
                 """,
                 (str(coefficient),),
+            )
+
+    def get_language(self) -> str:
+        return self.get_setting("language", DEFAULT_LANGUAGE)
+
+    def set_language(self, language: str) -> None:
+        self.set_setting("language", language)
+
+    def get_setting(self, key: str, default: str) -> str:
+        row = self.connection.execute("SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        if row is None:
+            return default
+        return str(row["value"])
+
+    def set_setting(self, key: str, value: str) -> None:
+        with self.connection:
+            self.connection.execute(
+                """
+                INSERT INTO settings (key, value)
+                VALUES (?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = excluded.value
+                """,
+                (key, value),
             )
 
     def add_session(
