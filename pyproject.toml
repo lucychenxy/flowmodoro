@@ -1,9 +1,8 @@
 [project]
 name = "flowmo"
-version = "0.1.0"
+version = "0.0.1"
 description = "A Flowmodoro work session tracker."
 requires-python = ">=3.11"
 
 [tool.ruff]
 line-length = 100
-

@@ -45,6 +45,14 @@ conda run -n flowmo pyinstaller --noconfirm --clean Flowmo.spec
 
 The executable is created at `dist/Flowmo.exe`.
 
+To build a Windows installer for release:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File packaging\build_windows_installer.ps1 -Version v.0.0.1
+```
+
+The installer is created at `release/Flowmo-Setup-v.0.0.1.exe`.
+
 ## Notes for Future Cross-Platform Work
 
 The database and session logic are kept separate from the Tkinter UI. A future
