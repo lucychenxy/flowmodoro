@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+import calendar
 import tkinter as tk
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from tkinter import messagebox, ttk
 
-from flowmo.db import CATEGORIES, FlowmoStore, format_duration, utc_now_without_microseconds
+from flowmo.db import (
+    CATEGORIES,
+    FlowmoStore,
+    build_range_bounds,
+    format_duration,
+    utc_now_without_microseconds,
+)
 
 
 CATEGORY_COLORS = {
@@ -21,6 +28,13 @@ RANGE_LABELS = {
     "week": "本周",
     "month": "本月",
     "year": "今年",
+}
+
+HISTORY_RANGE_LABELS = {
+    "day": "日",
+    "week": "周",
+    "month": "月",
+    "year": "年",
 }
 
 
@@ -41,11 +55,12 @@ class FlowmoApp(tk.Tk):
         self.status_var = tk.StringVar(value="准备开始")
         self.coefficient_var = tk.StringVar(value=f"{self.store.get_break_coefficient():.1f}")
         self.visual_range_var = tk.StringVar(value="week")
+        self.history_range_var = tk.StringVar(value="day")
         self.calendar_date_var = tk.StringVar(value=date.today().isoformat())
         self.break_var = tk.StringVar(value="开始 session 后会在这里显示状态")
 
         self._build_ui()
-        self._refresh_history()
+        self._refresh_log()
         self._refresh_visualization()
         self._refresh_calendar()
         self._tick()
@@ -106,17 +121,17 @@ class FlowmoApp(tk.Tk):
         notebook = ttk.Notebook(self)
         notebook.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 16))
 
-        history_frame = ttk.Frame(notebook, padding=8)
         visualization_frame = ttk.Frame(notebook, padding=8)
         calendar_frame = ttk.Frame(notebook, padding=8)
-        notebook.add(history_frame, text="最近记录")
-        notebook.add(visualization_frame, text="统计")
-        notebook.add(calendar_frame, text="日历")
+        log_frame = ttk.Frame(notebook, padding=8)
+        notebook.add(visualization_frame, text="最近")
+        notebook.add(calendar_frame, text="历史记录")
+        notebook.add(log_frame, text="日志")
 
-        history_frame.rowconfigure(0, weight=1)
-        history_frame.columnconfigure(0, weight=1)
+        log_frame.rowconfigure(0, weight=1)
+        log_frame.columnconfigure(0, weight=1)
         self.history = ttk.Treeview(
-            history_frame,
+            log_frame,
             columns=("category", "task", "start", "end", "duration", "break"),
             show="headings",
             height=12,
@@ -133,7 +148,7 @@ class FlowmoApp(tk.Tk):
             self.history.column(column, width=width, anchor="w")
         self.history.grid(row=0, column=0, sticky="nsew")
 
-        history_scroll = ttk.Scrollbar(history_frame, orient="vertical", command=self.history.yview)
+        history_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.history.yview)
         history_scroll.grid(row=0, column=1, sticky="ns")
         self.history.configure(yscrollcommand=history_scroll.set)
 
@@ -179,11 +194,26 @@ class FlowmoApp(tk.Tk):
 
         controls = ttk.Frame(parent)
         controls.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
-        ttk.Label(controls, text="日期").grid(row=0, column=0, sticky="w")
-        date_entry = ttk.Entry(controls, textvariable=self.calendar_date_var, width=14)
-        date_entry.grid(row=0, column=1, sticky="w", padx=(8, 8))
-        date_entry.bind("<Return>", lambda _event: self._refresh_calendar())
-        ttk.Button(controls, text="查看", command=self._refresh_calendar).grid(row=0, column=2, sticky="w")
+        for index, (range_name, label) in enumerate(HISTORY_RANGE_LABELS.items()):
+            ttk.Radiobutton(
+                controls,
+                text=label,
+                variable=self.history_range_var,
+                value=range_name,
+                command=self._refresh_calendar,
+            ).grid(row=0, column=index, sticky="w", padx=(0 if index == 0 else 12, 0))
+
+        ttk.Label(controls, text="参考日期").grid(row=0, column=4, sticky="w", padx=(24, 0))
+        date_entry = ttk.Entry(
+            controls,
+            textvariable=self.calendar_date_var,
+            width=14,
+            state="readonly",
+        )
+        date_entry.grid(row=0, column=5, sticky="w", padx=(8, 4))
+        ttk.Button(controls, text="📅", width=3, command=self._open_date_picker).grid(
+            row=0, column=6, sticky="w"
+        )
 
         self.calendar_bar_canvas = tk.Canvas(parent, background="#ffffff", highlightthickness=1)
         self.calendar_bar_canvas.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
@@ -200,6 +230,68 @@ class FlowmoApp(tk.Tk):
 
         self.calendar_bar_canvas.bind("<Configure>", lambda _event: self._draw_calendar())
         self.calendar_pie_canvas.bind("<Configure>", lambda _event: self._draw_calendar())
+
+    def _open_date_picker(self) -> None:
+        try:
+            selected_date = date.fromisoformat(self.calendar_date_var.get())
+        except ValueError:
+            selected_date = date.today()
+
+        picker = tk.Toplevel(self)
+        picker.title("选择日期")
+        picker.resizable(False, False)
+        picker.transient(self)
+        picker.grab_set()
+        self._render_date_picker(picker, selected_date.year, selected_date.month)
+
+    def _render_date_picker(self, picker: tk.Toplevel, year: int, month: int) -> None:
+        for child in picker.winfo_children():
+            child.destroy()
+
+        header = ttk.Frame(picker, padding=(8, 8, 8, 4))
+        header.grid(row=0, column=0, sticky="ew")
+        ttk.Button(
+            header,
+            text="<",
+            width=3,
+            command=lambda: self._render_date_picker(
+                picker, year - 1 if month == 1 else year, 12 if month == 1 else month - 1
+            ),
+        ).grid(row=0, column=0, sticky="w")
+        ttk.Label(header, text=f"{year}-{month:02d}", width=12, anchor="center").grid(
+            row=0, column=1, padx=8
+        )
+        ttk.Button(
+            header,
+            text=">",
+            width=3,
+            command=lambda: self._render_date_picker(
+                picker, year + 1 if month == 12 else year, 1 if month == 12 else month + 1
+            ),
+        ).grid(row=0, column=2, sticky="e")
+
+        body = ttk.Frame(picker, padding=(8, 4, 8, 8))
+        body.grid(row=1, column=0, sticky="nsew")
+        for index, weekday in enumerate(("一", "二", "三", "四", "五", "六", "日")):
+            ttk.Label(body, text=weekday, width=4, anchor="center").grid(row=0, column=index)
+
+        month_days = calendar.Calendar(firstweekday=0).monthdatescalendar(year, month)
+        for row_index, week in enumerate(month_days, start=1):
+            for column_index, day in enumerate(week):
+                if day.month != month:
+                    ttk.Label(body, text="", width=4).grid(row=row_index, column=column_index)
+                    continue
+                ttk.Button(
+                    body,
+                    text=str(day.day),
+                    width=4,
+                    command=lambda selected=day: self._select_calendar_date(picker, selected),
+                ).grid(row=row_index, column=column_index, padx=1, pady=1)
+
+    def _select_calendar_date(self, picker: tk.Toplevel, selected_date: date) -> None:
+        self.calendar_date_var.set(selected_date.isoformat())
+        picker.destroy()
+        self._refresh_calendar()
 
     def _start_session(self) -> None:
         self._save_coefficient()
@@ -239,7 +331,7 @@ class FlowmoApp(tk.Tk):
         self.stop_button.configure(state="disabled")
         self.status_var.set("休息中")
         self.break_remaining_seconds = session.break_seconds
-        self._refresh_history()
+        self._refresh_log()
         self._refresh_visualization()
         self._refresh_calendar()
         self._run_break_timer()
@@ -276,7 +368,7 @@ class FlowmoApp(tk.Tk):
         self.break_remaining_seconds -= 1
         self.break_timer_job = self.after(1000, self._run_break_timer)
 
-    def _refresh_history(self) -> None:
+    def _refresh_log(self) -> None:
         self.history.delete(*self.history.get_children())
         for session in self.store.recent_sessions():
             self.history.insert(
@@ -309,26 +401,15 @@ class FlowmoApp(tk.Tk):
         if not hasattr(self, "calendar_bar_canvas") or not hasattr(self, "calendar_pie_canvas"):
             return
 
-        try:
-            selected_date = date.fromisoformat(self.calendar_date_var.get().strip())
-        except ValueError:
-            self.calendar_bar_canvas.delete("all")
-            self.calendar_pie_canvas.delete("all")
-            for canvas in (self.calendar_bar_canvas, self.calendar_pie_canvas):
-                self._draw_empty_state(
-                    canvas,
-                    max(canvas.winfo_width(), 1),
-                    max(canvas.winfo_height(), 1),
-                    "请输入 YYYY-MM-DD 格式的日期",
-                )
-            return
+        selected_date = date.fromisoformat(self.calendar_date_var.get().strip())
+        range_name = self.history_range_var.get()
 
         self._draw_charts(
             self.calendar_bar_canvas,
             self.calendar_pie_canvas,
-            "day",
+            range_name,
             selected_date,
-            selected_date.isoformat(),
+            self._history_title(range_name, selected_date),
         )
 
     def _draw_charts(
@@ -514,6 +595,19 @@ class FlowmoApp(tk.Tk):
             minutes = int(round(seconds / 60))
             return f"{minutes} 分钟"
         return f"{hours:.1f} 小时"
+
+    def _history_title(self, range_name: str, reference_date: date) -> str:
+        if range_name == "day":
+            return reference_date.isoformat()
+        if range_name == "week":
+            start_time, end_time = build_range_bounds("week", reference_date)
+            end_date = (end_time.date() - timedelta(days=1)).isoformat()
+            return f"{start_time.date().isoformat()} 至 {end_date}"
+        if range_name == "month":
+            return f"{reference_date.year}-{reference_date.month:02d}"
+        if range_name == "year":
+            return str(reference_date.year)
+        return reference_date.isoformat()
 
     def _on_close(self) -> None:
         if self.current_start is not None:

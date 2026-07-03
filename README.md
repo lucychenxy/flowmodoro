@@ -9,9 +9,10 @@ Current scope:
 - Work categories: reading, experiments, writing, teaching, meetings, admin.
 - Forward timer with start/end buttons.
 - Rest duration calculated as `work duration / break coefficient`.
-- Statistics tab with stacked bar charts for day/week/month/year hourly work patterns.
+- Recent tab with stacked bar charts for current day/week/month/year hourly work patterns.
 - Category pie chart with total duration and percentage labels.
-- Calendar tab for reviewing any past date by `YYYY-MM-DD`.
+- History tab for reviewing any past day/week/month/year from a calendar date picker.
+- Log tab for recent session records.
 
 ## Run
 
