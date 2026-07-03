@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from flowmo.db import FlowmoStore, format_duration
+from flowmo.db import FlowmoStore, build_time_buckets, format_duration
 
 
 class FlowmoStoreTests(unittest.TestCase):
@@ -41,12 +41,38 @@ class FlowmoStoreTests(unittest.TestCase):
         self.assertEqual(rows[0].session_count, 2)
         self.assertEqual(rows[0].total_seconds, 10800)
 
+    def test_time_bucket_distribution_splits_sessions_across_hours(self) -> None:
+        start = datetime(2026, 7, 3, 9, 30, 0)
+        end = datetime(2026, 7, 3, 10, 30, 0)
+        self.store.add_session("实验", "Run test", start, end, coefficient=5)
+
+        rows = self.store.time_bucket_distribution("day", reference_date=start.date())
+
+        self.assertEqual(rows[9].totals_by_category["实验"], 1800)
+        self.assertEqual(rows[10].totals_by_category["实验"], 1800)
+
+    def test_category_distribution_uses_selected_range(self) -> None:
+        start = datetime(2026, 7, 3, 9, 0, 0)
+        self.store.add_session("会议", "Group meeting", start, start + timedelta(hours=1), coefficient=5)
+
+        rows = self.store.category_distribution("week", reference_date=start.date())
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].category, "会议")
+        self.assertEqual(rows[0].total_seconds, 3600)
+
 
 class FormattingTests(unittest.TestCase):
     def test_format_duration(self) -> None:
         self.assertEqual(format_duration(3661), "01:01:01")
 
+    def test_build_time_buckets_for_week_starts_on_monday(self) -> None:
+        buckets = build_time_buckets("week", reference_date=datetime(2026, 7, 3).date())
+
+        self.assertEqual(buckets[0].label, "周一")
+        self.assertEqual(buckets[0].start_time.date().isoformat(), "2026-06-29")
+        self.assertEqual(buckets[-1].label, "周日")
+
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -10,6 +10,8 @@ Current scope:
 - Forward timer with start/end buttons.
 - Rest duration calculated as `work duration / break coefficient`.
 - Weekly, monthly, and yearly summaries.
+- Visualization tab with stacked bar charts for day/week/month/year time buckets.
+- Category pie chart with total duration and percentage labels.
 
 ## Run
 
@@ -30,4 +32,3 @@ python -m unittest
 The database and session logic are kept separate from the Tkinter UI. A future
 Linux desktop, Android, web, or wearable client can reuse the SQLite schema or
 sync against the same session model.
-

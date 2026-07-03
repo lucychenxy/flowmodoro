@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 
@@ -36,6 +36,29 @@ class SummaryRow:
     period: str
     category: str
     session_count: int
+    total_seconds: int
+
+
+@dataclass(frozen=True)
+class TimeBucket:
+    label: str
+    start_time: datetime
+    end_time: datetime
+
+
+@dataclass(frozen=True)
+class TimeBucketRow:
+    label: str
+    totals_by_category: dict[str, int]
+
+    @property
+    def total_seconds(self) -> int:
+        return sum(self.totals_by_category.values())
+
+
+@dataclass(frozen=True)
+class CategoryTotal:
+    category: str
     total_seconds: int
 
 
@@ -167,6 +190,21 @@ class FlowmoStore:
         ).fetchall()
         return [self._row_to_session(row) for row in rows]
 
+    def sessions_between(self, start_time: datetime, end_time: datetime) -> list[WorkSession]:
+        rows = self.connection.execute(
+            """
+            SELECT *
+            FROM sessions
+            WHERE end_time > ? AND start_time < ?
+            ORDER BY start_time
+            """,
+            (
+                start_time.isoformat(timespec="seconds"),
+                end_time.isoformat(timespec="seconds"),
+            ),
+        ).fetchall()
+        return [self._row_to_session(row) for row in rows]
+
     def summary(self, period: str) -> list[SummaryRow]:
         period_expression = {
             "week": "strftime('%Y-W%W', start_time)",
@@ -198,6 +236,49 @@ class FlowmoStore:
             for row in rows
         ]
 
+    def time_bucket_distribution(
+        self, range_name: str, reference_date: date | None = None
+    ) -> list[TimeBucketRow]:
+        buckets = build_time_buckets(range_name, reference_date)
+        if not buckets:
+            return []
+
+        sessions = self.sessions_between(buckets[0].start_time, buckets[-1].end_time)
+        rows: list[TimeBucketRow] = []
+        for bucket in buckets:
+            totals = {category: 0 for category in CATEGORIES}
+            for session in sessions:
+                overlap_start = max(session.start_time, bucket.start_time)
+                overlap_end = min(session.end_time, bucket.end_time)
+                if overlap_end <= overlap_start:
+                    continue
+                totals[session.category] += int((overlap_end - overlap_start).total_seconds())
+            rows.append(TimeBucketRow(label=bucket.label, totals_by_category=totals))
+        return rows
+
+    def category_distribution(
+        self, range_name: str, reference_date: date | None = None
+    ) -> list[CategoryTotal]:
+        buckets = build_time_buckets(range_name, reference_date)
+        if not buckets:
+            return []
+
+        totals = {category: 0 for category in CATEGORIES}
+        sessions = self.sessions_between(buckets[0].start_time, buckets[-1].end_time)
+        for bucket in buckets:
+            for session in sessions:
+                overlap_start = max(session.start_time, bucket.start_time)
+                overlap_end = min(session.end_time, bucket.end_time)
+                if overlap_end <= overlap_start:
+                    continue
+                totals[session.category] += int((overlap_end - overlap_start).total_seconds())
+
+        return [
+            CategoryTotal(category=category, total_seconds=seconds)
+            for category, seconds in totals.items()
+            if seconds > 0
+        ]
+
     def _row_to_session(self, row: sqlite3.Row) -> WorkSession:
         return WorkSession(
             id=int(row["id"]),
@@ -218,3 +299,61 @@ def format_duration(seconds: int) -> str:
     minutes, secs = divmod(remainder, 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
 
+
+def build_time_buckets(range_name: str, reference_date: date | None = None) -> list[TimeBucket]:
+    reference_date = reference_date or date.today()
+
+    if range_name == "day":
+        day_start = datetime.combine(reference_date, time.min)
+        return [
+            TimeBucket(
+                label=f"{hour:02d}:00",
+                start_time=day_start + timedelta(hours=hour),
+                end_time=day_start + timedelta(hours=hour + 1),
+            )
+            for hour in range(24)
+        ]
+
+    if range_name == "week":
+        week_start_date = reference_date - timedelta(days=reference_date.weekday())
+        week_start = datetime.combine(week_start_date, time.min)
+        labels = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+        return [
+            TimeBucket(
+                label=labels[index],
+                start_time=week_start + timedelta(days=index),
+                end_time=week_start + timedelta(days=index + 1),
+            )
+            for index in range(7)
+        ]
+
+    if range_name == "month":
+        month_start = datetime(reference_date.year, reference_date.month, 1)
+        if reference_date.month == 12:
+            next_month = datetime(reference_date.year + 1, 1, 1)
+        else:
+            next_month = datetime(reference_date.year, reference_date.month + 1, 1)
+
+        buckets = []
+        cursor = month_start
+        while cursor < next_month:
+            next_day = cursor + timedelta(days=1)
+            buckets.append(TimeBucket(label=str(cursor.day), start_time=cursor, end_time=next_day))
+            cursor = next_day
+        return buckets
+
+    if range_name == "year":
+        return [
+            TimeBucket(
+                label=f"{month}月",
+                start_time=datetime(reference_date.year, month, 1),
+                end_time=(
+                    datetime(reference_date.year + 1, 1, 1)
+                    if month == 12
+                    else datetime(reference_date.year, month + 1, 1)
+                ),
+            )
+            for month in range(1, 13)
+        ]
+
+    raise ValueError("range_name must be one of: day, week, month, year")
