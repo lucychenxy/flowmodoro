@@ -164,7 +164,7 @@ class FlowmoApp(tk.Tk):
             height=12,
         )
         for column, label, width in (
-            ("category", self.t("category_column"), 90),
+            ("category", self.t("editable_category_column"), 150),
             ("task", self.t("task_column"), 240),
             ("start", self.t("start_column"), 150),
             ("end", self.t("end_column"), 150),
@@ -179,10 +179,7 @@ class FlowmoApp(tk.Tk):
         history_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.history.yview)
         history_scroll.grid(row=0, column=1, sticky="ns")
         self.history.configure(yscrollcommand=history_scroll.set)
-
-        ttk.Button(log_frame, text=self.t("edit_category"), command=self._edit_selected_log_category).grid(
-            row=1, column=0, sticky="w", pady=(8, 0)
-        )
+        self.history.bind("<Double-1>", self._open_category_cell_editor)
 
         self._build_visualization_tab(visualization_frame)
         self._build_calendar_tab(calendar_frame)
@@ -476,13 +473,13 @@ class FlowmoApp(tk.Tk):
                 ),
             )
 
-    def _edit_selected_log_category(self) -> None:
-        selected = self.history.selection()
-        if not selected:
-            messagebox.showwarning(self.t("edit_category_title"), self.t("select_log_row"))
+    def _open_category_cell_editor(self, event: tk.Event) -> None:
+        row_id = self.history.identify_row(event.y)
+        column_id = self.history.identify_column(event.x)
+        if not row_id or column_id != "#1":
             return
 
-        session_id = int(selected[0])
+        session_id = int(row_id)
         session = next(
             (item for item in self.store.recent_sessions() if item.id == session_id),
             None,
@@ -497,47 +494,66 @@ class FlowmoApp(tk.Tk):
             )
             return
 
-        dialog = tk.Toplevel(self)
-        dialog.title(self.t("edit_category_title"))
-        dialog.resizable(False, False)
-        dialog.transient(self)
-        dialog.grab_set()
+        cell_box = self.history.bbox(row_id, column_id)
+        if not cell_box:
+            return
+        x, y, width, height = cell_box
+        current_label = category_label(self.language, session.category)
+        category_values = [
+            category_label(self.language, category)
+            for category in CATEGORIES
+            if category != session.category
+        ]
 
-        ttk.Label(dialog, text=self.t("edit_category_message"), padding=(12, 12, 12, 4)).grid(
-            row=0, column=0, sticky="w"
+        editor_var = tk.StringVar(value=current_label)
+        editor = ttk.Combobox(
+            self.history,
+            textvariable=editor_var,
+            values=category_values,
+            state="readonly",
         )
-        new_category_var = tk.StringVar(value="")
-        options = ttk.Frame(dialog, padding=(12, 4, 12, 8))
-        options.grid(row=1, column=0, sticky="w")
-        for index, category in enumerate(CATEGORIES):
-            ttk.Radiobutton(
-                options,
-                text=category_label(self.language, category),
-                variable=new_category_var,
-                value=category_label(self.language, category),
-            ).grid(row=index, column=0, sticky="w", pady=1)
+        editor.place(x=x, y=y, width=width, height=height)
+        editor.focus_set()
 
-        buttons = ttk.Frame(dialog, padding=(12, 4, 12, 12))
-        buttons.grid(row=2, column=0, sticky="e")
-        ttk.Button(
-            buttons,
-            text=self.t("edit_category"),
-            command=lambda: self._apply_category_edit(dialog, session_id, new_category_var.get()),
-        ).grid(row=0, column=0, padx=(0, 8))
-        ttk.Button(buttons, text=self.t("cancel"), command=dialog.destroy).grid(row=0, column=1)
+        def close_editor() -> None:
+            if editor.winfo_exists():
+                editor.destroy()
 
-    def _apply_category_edit(self, dialog: tk.Toplevel, session_id: int, category_label_value: str) -> None:
+        def on_select(_event: tk.Event) -> None:
+            selected_label = editor_var.get()
+            close_editor()
+            self._confirm_category_edit(session_id, session.category, selected_label)
+
+        editor.bind("<<ComboboxSelected>>", on_select)
+        editor.bind("<Escape>", lambda _event: close_editor())
+        editor.bind("<FocusOut>", lambda _event: self.after(150, close_editor))
+        editor.event_generate("<Button-1>")
+
+    def _confirm_category_edit(
+        self, session_id: int, old_category: str, category_label_value: str
+    ) -> None:
         new_category = category_from_label(self.language, category_label_value)
         if new_category not in CATEGORIES:
             messagebox.showwarning(self.t("choose_category"), self.t("choose_category_message"))
             return
+        if new_category == old_category:
+            return
+
+        old_label = category_label(self.language, old_category)
+        new_label = category_label(self.language, new_category)
+        confirmed = messagebox.askyesno(
+            self.t("edit_category_title"),
+            self.t("confirm_category_edit", old=old_label, new=new_label),
+        )
+        if not confirmed:
+            return
+
         try:
             self.store.update_session_category_once(session_id, new_category)
         except ValueError as exc:
             messagebox.showerror(self.t("category_edit_error"), str(exc))
             return
 
-        dialog.destroy()
         self._refresh_log()
         self._refresh_visualization()
         self._refresh_calendar()
