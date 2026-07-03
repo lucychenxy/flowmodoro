@@ -15,7 +15,19 @@ Current scope:
 - History tab for reviewing any past day/week/month/year from a calendar date picker.
 - Log tab for recent session records.
 
-## Run
+## Install on Windows
+
+Most users should install Flowmo from the latest GitHub Release:
+
+1. Open the [Flowmo v.0.0.1 release](https://github.com/lucychenxy/flowmodoro/releases/tag/v.0.0.1).
+2. Download `Flowmo-Setup-v.0.0.1.exe`.
+3. Run the installer.
+
+The installer copies Flowmo to your local user programs folder and creates shortcuts.
+
+## Build from Source
+
+Clone the repository and run the app directly:
 
 ```powershell
 python -m flowmo
@@ -23,15 +35,13 @@ python -m flowmo
 
 The app creates its database at `data/flowmo.sqlite3`.
 
-## Test
+Run tests with:
 
 ```powershell
 python -m unittest
 ```
 
-## Build Windows EXE
-
-Install PyInstaller in the app environment once:
+To build the Windows executable yourself, install PyInstaller in the app environment once:
 
 ```powershell
 conda install -n flowmo pyinstaller
@@ -45,7 +55,7 @@ conda run -n flowmo pyinstaller --noconfirm --clean Flowmo.spec
 
 The executable is created at `dist/Flowmo.exe`.
 
-To build a Windows installer for release:
+To build a Windows installer yourself:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File packaging\build_windows_installer.ps1 -Version v.0.0.1
