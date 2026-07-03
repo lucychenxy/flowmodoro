@@ -727,20 +727,30 @@ class FlowmoApp(tk.Tk):
         x1 = x0 + diameter
         y1 = y0 + diameter
 
-        start_angle = 90
-        for row in category_rows:
-            extent = 360 * row.total_seconds / total_seconds
-            canvas.create_arc(
+        if len(category_rows) == 1:
+            canvas.create_oval(
                 x0,
                 y0,
                 x1,
                 y1,
-                start=start_angle,
-                extent=-extent,
-                fill=CATEGORY_COLORS[row.category],
+                fill=CATEGORY_COLORS[category_rows[0].category],
                 outline="#ffffff",
             )
-            start_angle -= extent
+        else:
+            start_angle = 90
+            for row in category_rows:
+                extent = 360 * row.total_seconds / total_seconds
+                canvas.create_arc(
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    start=start_angle,
+                    extent=-extent,
+                    fill=CATEGORY_COLORS[row.category],
+                    outline="#ffffff",
+                )
+                start_angle -= extent
 
         legend_x = x1 + 24
         legend_y = 62
