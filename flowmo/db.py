@@ -30,6 +30,7 @@ class WorkSession:
     end_time: datetime
     duration_seconds: int
     break_seconds: int
+    category_edit_used: bool = False
 
 
 @dataclass(frozen=True)
@@ -89,10 +90,19 @@ class FlowmoStore:
                     start_time TEXT NOT NULL,
                     end_time TEXT NOT NULL,
                     duration_seconds INTEGER NOT NULL,
-                    break_seconds INTEGER NOT NULL
+                    break_seconds INTEGER NOT NULL,
+                    category_edit_used INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
+            columns = {
+                row["name"]
+                for row in self.connection.execute("PRAGMA table_info(sessions)").fetchall()
+            }
+            if "category_edit_used" not in columns:
+                self.connection.execute(
+                    "ALTER TABLE sessions ADD COLUMN category_edit_used INTEGER NOT NULL DEFAULT 0"
+                )
             self.connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS settings (
@@ -202,7 +212,41 @@ class FlowmoStore:
             end_time=end_time,
             duration_seconds=duration_seconds,
             break_seconds=break_seconds,
+            category_edit_used=False,
         )
+
+    def update_session_category_once(self, session_id: int, new_category: str) -> WorkSession:
+        if new_category not in CATEGORIES:
+            raise ValueError(f"未知工作类别: {new_category}")
+
+        row = self.connection.execute(
+            "SELECT * FROM sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("Session not found.")
+
+        session = self._row_to_session(row)
+        if session.category_edit_used:
+            raise ValueError("This session's category has already been edited once.")
+        if session.category == new_category:
+            raise ValueError("New category must be different from the current category.")
+
+        with self.connection:
+            self.connection.execute(
+                """
+                UPDATE sessions
+                SET category = ?, category_edit_used = 1
+                WHERE id = ?
+                """,
+                (new_category, session_id),
+            )
+
+        updated = self.connection.execute(
+            "SELECT * FROM sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+        return self._row_to_session(updated)
 
     def recent_sessions(self, limit: int = 20) -> list[WorkSession]:
         rows = self.connection.execute(
@@ -311,6 +355,7 @@ class FlowmoStore:
             end_time=datetime.fromisoformat(row["end_time"]),
             duration_seconds=int(row["duration_seconds"]),
             break_seconds=int(row["break_seconds"]),
+            category_edit_used=bool(row["category_edit_used"]),
         )
 
 

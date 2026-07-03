@@ -55,11 +55,12 @@ class FlowmoApp(tk.Tk):
 
         self.store = store or FlowmoStore()
         self.current_start: datetime | None = None
+        self.current_category: str | None = None
         self.break_remaining_seconds = 0
         self.break_timer_job: str | None = None
         self.language = normalize_language(self.store.get_language())
 
-        self.category_var = tk.StringVar(value=category_label(self.language, CATEGORIES[0]))
+        self.category_var = tk.StringVar(value="")
         self.timer_var = tk.StringVar(value="00:00:00")
         self.status_var = tk.StringVar(value=self.t("ready"))
         self.coefficient_var = tk.StringVar(value=f"{self.store.get_break_coefficient():.1f}")
@@ -89,13 +90,15 @@ class FlowmoApp(tk.Tk):
         top.columnconfigure(1, weight=1)
 
         ttk.Label(top, text=self.t("category")).grid(row=0, column=0, sticky="w")
-        ttk.Combobox(
-            top,
-            textvariable=self.category_var,
-            values=[category_label(self.language, category) for category in CATEGORIES],
-            state="readonly",
-            width=12,
-        ).grid(row=0, column=1, sticky="w", padx=(8, 24))
+        category_frame = ttk.Frame(top)
+        category_frame.grid(row=0, column=1, sticky="w", padx=(8, 24))
+        for index, category in enumerate(CATEGORIES):
+            ttk.Radiobutton(
+                category_frame,
+                text=category_label(self.language, category),
+                variable=self.category_var,
+                value=category_label(self.language, category),
+            ).grid(row=0, column=index, sticky="w", padx=(0 if index == 0 else 8, 0))
 
         ttk.Label(top, text=self.t("break_coefficient")).grid(row=0, column=2, sticky="e")
         coefficient = ttk.Spinbox(
@@ -156,7 +159,7 @@ class FlowmoApp(tk.Tk):
         log_frame.columnconfigure(0, weight=1)
         self.history = ttk.Treeview(
             log_frame,
-            columns=("category", "task", "start", "end", "duration", "break"),
+            columns=("category", "task", "start", "end", "duration", "break", "edited"),
             show="headings",
             height=12,
         )
@@ -167,6 +170,7 @@ class FlowmoApp(tk.Tk):
             ("end", self.t("end_column"), 150),
             ("duration", self.t("duration_column"), 100),
             ("break", self.t("break_column"), 120),
+            ("edited", self.t("category_edited_column"), 120),
         ):
             self.history.heading(column, text=label)
             self.history.column(column, width=width, anchor="w")
@@ -175,6 +179,10 @@ class FlowmoApp(tk.Tk):
         history_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self.history.yview)
         history_scroll.grid(row=0, column=1, sticky="ns")
         self.history.configure(yscrollcommand=history_scroll.set)
+
+        ttk.Button(log_frame, text=self.t("edit_category"), command=self._edit_selected_log_category).grid(
+            row=1, column=0, sticky="w", pady=(8, 0)
+        )
 
         self._build_visualization_tab(visualization_frame)
         self._build_calendar_tab(calendar_frame)
@@ -333,7 +341,9 @@ class FlowmoApp(tk.Tk):
         task_text = self.task_text.get("1.0", "end").strip() if hasattr(self, "task_text") else ""
         self.language = selected_language
         self.store.set_language(selected_language)
-        self.category_var.set(category_label(self.language, selected_category))
+        self.category_var.set(
+            category_label(self.language, selected_category) if selected_category else ""
+        )
         self.language_var.set(LANGUAGES[self.language])
         self._sync_status_language()
 
@@ -364,8 +374,14 @@ class FlowmoApp(tk.Tk):
         self.break_var.set(self.t("status_hint"))
 
     def _start_session(self) -> None:
+        selected_category = category_from_label(self.language, self.category_var.get())
+        if selected_category not in CATEGORIES:
+            messagebox.showwarning(self.t("choose_category"), self.t("choose_category_message"))
+            return
+
         self._save_coefficient()
         self.current_start = utc_now_without_microseconds()
+        self.current_category = selected_category
         self.break_remaining_seconds = 0
         self.timer_var.set("00:00:00")
         self.status_var.set(
@@ -388,7 +404,7 @@ class FlowmoApp(tk.Tk):
         coefficient = self._save_coefficient()
         try:
             session = self.store.add_session(
-                category=category_from_label(self.language, self.category_var.get()),
+                category=self.current_category or category_from_label(self.language, self.category_var.get()),
                 task=task,
                 start_time=self.current_start,
                 end_time=end_time,
@@ -399,6 +415,8 @@ class FlowmoApp(tk.Tk):
             return
 
         self.current_start = None
+        self.current_category = None
+        self.category_var.set("")
         self.start_button.configure(state="normal")
         self.stop_button.configure(state="disabled")
         self.status_var.set(self.t("resting"))
@@ -446,6 +464,7 @@ class FlowmoApp(tk.Tk):
             self.history.insert(
                 "",
                 "end",
+                iid=str(session.id),
                 values=(
                     category_label(self.language, session.category),
                     session.task,
@@ -453,8 +472,76 @@ class FlowmoApp(tk.Tk):
                     session.end_time.strftime("%Y-%m-%d %H:%M:%S"),
                     format_duration(session.duration_seconds),
                     format_duration(session.break_seconds),
+                    self.t("yes") if session.category_edit_used else self.t("no"),
                 ),
             )
+
+    def _edit_selected_log_category(self) -> None:
+        selected = self.history.selection()
+        if not selected:
+            messagebox.showwarning(self.t("edit_category_title"), self.t("select_log_row"))
+            return
+
+        session_id = int(selected[0])
+        session = next(
+            (item for item in self.store.recent_sessions() if item.id == session_id),
+            None,
+        )
+        if session is None:
+            messagebox.showerror(self.t("category_edit_error"), "Session not found.")
+            return
+        if session.category_edit_used:
+            messagebox.showwarning(
+                self.t("edit_category_title"),
+                self.t("cannot_edit_category_twice"),
+            )
+            return
+
+        dialog = tk.Toplevel(self)
+        dialog.title(self.t("edit_category_title"))
+        dialog.resizable(False, False)
+        dialog.transient(self)
+        dialog.grab_set()
+
+        ttk.Label(dialog, text=self.t("edit_category_message"), padding=(12, 12, 12, 4)).grid(
+            row=0, column=0, sticky="w"
+        )
+        new_category_var = tk.StringVar(value="")
+        options = ttk.Frame(dialog, padding=(12, 4, 12, 8))
+        options.grid(row=1, column=0, sticky="w")
+        for index, category in enumerate(CATEGORIES):
+            ttk.Radiobutton(
+                options,
+                text=category_label(self.language, category),
+                variable=new_category_var,
+                value=category_label(self.language, category),
+            ).grid(row=index, column=0, sticky="w", pady=1)
+
+        buttons = ttk.Frame(dialog, padding=(12, 4, 12, 12))
+        buttons.grid(row=2, column=0, sticky="e")
+        ttk.Button(
+            buttons,
+            text=self.t("edit_category"),
+            command=lambda: self._apply_category_edit(dialog, session_id, new_category_var.get()),
+        ).grid(row=0, column=0, padx=(0, 8))
+        ttk.Button(buttons, text=self.t("cancel"), command=dialog.destroy).grid(row=0, column=1)
+
+    def _apply_category_edit(self, dialog: tk.Toplevel, session_id: int, category_label_value: str) -> None:
+        new_category = category_from_label(self.language, category_label_value)
+        if new_category not in CATEGORIES:
+            messagebox.showwarning(self.t("choose_category"), self.t("choose_category_message"))
+            return
+        try:
+            self.store.update_session_category_once(session_id, new_category)
+        except ValueError as exc:
+            messagebox.showerror(self.t("category_edit_error"), str(exc))
+            return
+
+        dialog.destroy()
+        self._refresh_log()
+        self._refresh_visualization()
+        self._refresh_calendar()
+        messagebox.showinfo(self.t("edit_category_title"), self.t("category_edit_success"))
 
     def _refresh_visualization(self) -> None:
         self._draw_visualization()

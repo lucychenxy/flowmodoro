@@ -23,6 +23,29 @@ class FlowmoStoreTests(unittest.TestCase):
 
         self.assertEqual(session.duration_seconds, 3000)
         self.assertEqual(session.break_seconds, 600)
+        self.assertFalse(session.category_edit_used)
+
+    def test_session_category_can_be_edited_once(self) -> None:
+        start = datetime(2026, 7, 3, 9, 0, 0)
+        session = self.store.add_session(
+            "阅读", "Misclassified work", start, start + timedelta(minutes=30), coefficient=5
+        )
+
+        updated = self.store.update_session_category_once(session.id, "写作")
+
+        self.assertEqual(updated.category, "写作")
+        self.assertTrue(updated.category_edit_used)
+        with self.assertRaises(ValueError):
+            self.store.update_session_category_once(session.id, "实验")
+
+    def test_session_category_edit_requires_different_category(self) -> None:
+        start = datetime(2026, 7, 3, 9, 0, 0)
+        session = self.store.add_session(
+            "阅读", "Same category", start, start + timedelta(minutes=30), coefficient=5
+        )
+
+        with self.assertRaises(ValueError):
+            self.store.update_session_category_once(session.id, "阅读")
 
     def test_break_coefficient_must_be_greater_than_three(self) -> None:
         with self.assertRaises(ValueError):
