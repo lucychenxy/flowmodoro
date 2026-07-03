@@ -29,6 +29,22 @@ The app creates its database at `data/flowmo.sqlite3`.
 python -m unittest
 ```
 
+## Build Windows EXE
+
+Install PyInstaller in the app environment once:
+
+```powershell
+conda install -n flowmo pyinstaller
+```
+
+Then build:
+
+```powershell
+conda run -n flowmo pyinstaller --noconfirm --clean Flowmo.spec
+```
+
+The executable is created at `dist/Flowmo.exe`.
+
 ## Notes for Future Cross-Platform Work
 
 The database and session logic are kept separate from the Tkinter UI. A future
