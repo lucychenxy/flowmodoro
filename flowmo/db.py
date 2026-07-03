@@ -239,39 +239,36 @@ class FlowmoStore:
     def time_bucket_distribution(
         self, range_name: str, reference_date: date | None = None
     ) -> list[TimeBucketRow]:
-        buckets = build_time_buckets(range_name, reference_date)
-        if not buckets:
-            return []
+        start_time, end_time = build_range_bounds(range_name, reference_date)
+        rows = [
+            TimeBucketRow(label=f"{hour:02d}:00", totals_by_category={category: 0 for category in CATEGORIES})
+            for hour in range(24)
+        ]
 
-        sessions = self.sessions_between(buckets[0].start_time, buckets[-1].end_time)
-        rows: list[TimeBucketRow] = []
-        for bucket in buckets:
-            totals = {category: 0 for category in CATEGORIES}
-            for session in sessions:
-                overlap_start = max(session.start_time, bucket.start_time)
-                overlap_end = min(session.end_time, bucket.end_time)
-                if overlap_end <= overlap_start:
-                    continue
-                totals[session.category] += int((overlap_end - overlap_start).total_seconds())
-            rows.append(TimeBucketRow(label=bucket.label, totals_by_category=totals))
+        for session in self.sessions_between(start_time, end_time):
+            cursor = max(session.start_time, start_time)
+            session_end = min(session.end_time, end_time)
+            while cursor < session_end:
+                next_hour = (cursor.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1))
+                segment_end = min(next_hour, session_end)
+                rows[cursor.hour].totals_by_category[session.category] += int(
+                    (segment_end - cursor).total_seconds()
+                )
+                cursor = segment_end
+
         return rows
 
     def category_distribution(
         self, range_name: str, reference_date: date | None = None
     ) -> list[CategoryTotal]:
-        buckets = build_time_buckets(range_name, reference_date)
-        if not buckets:
-            return []
-
+        start_time, end_time = build_range_bounds(range_name, reference_date)
         totals = {category: 0 for category in CATEGORIES}
-        sessions = self.sessions_between(buckets[0].start_time, buckets[-1].end_time)
-        for bucket in buckets:
-            for session in sessions:
-                overlap_start = max(session.start_time, bucket.start_time)
-                overlap_end = min(session.end_time, bucket.end_time)
-                if overlap_end <= overlap_start:
-                    continue
-                totals[session.category] += int((overlap_end - overlap_start).total_seconds())
+        for session in self.sessions_between(start_time, end_time):
+            overlap_start = max(session.start_time, start_time)
+            overlap_end = min(session.end_time, end_time)
+            if overlap_end <= overlap_start:
+                continue
+            totals[session.category] += int((overlap_end - overlap_start).total_seconds())
 
         return [
             CategoryTotal(category=category, total_seconds=seconds)
@@ -301,59 +298,41 @@ def format_duration(seconds: int) -> str:
 
 
 def build_time_buckets(range_name: str, reference_date: date | None = None) -> list[TimeBucket]:
-    reference_date = reference_date or date.today()
-
-    if range_name == "day":
-        day_start = datetime.combine(reference_date, time.min)
+    start_time, end_time = build_range_bounds(range_name, reference_date)
+    if range_name in {"day", "week", "month", "year"}:
         return [
             TimeBucket(
                 label=f"{hour:02d}:00",
-                start_time=day_start + timedelta(hours=hour),
-                end_time=day_start + timedelta(hours=hour + 1),
+                start_time=start_time + timedelta(hours=hour),
+                end_time=min(start_time + timedelta(hours=hour + 1), end_time),
             )
             for hour in range(24)
         ]
 
+    raise ValueError("range_name must be one of: day, week, month, year")
+
+
+def build_range_bounds(
+    range_name: str, reference_date: date | None = None
+) -> tuple[datetime, datetime]:
+    reference_date = reference_date or date.today()
+
+    if range_name == "day":
+        start_time = datetime.combine(reference_date, time.min)
+        return start_time, start_time + timedelta(days=1)
+
     if range_name == "week":
         week_start_date = reference_date - timedelta(days=reference_date.weekday())
-        week_start = datetime.combine(week_start_date, time.min)
-        labels = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
-        return [
-            TimeBucket(
-                label=labels[index],
-                start_time=week_start + timedelta(days=index),
-                end_time=week_start + timedelta(days=index + 1),
-            )
-            for index in range(7)
-        ]
+        start_time = datetime.combine(week_start_date, time.min)
+        return start_time, start_time + timedelta(days=7)
 
     if range_name == "month":
-        month_start = datetime(reference_date.year, reference_date.month, 1)
+        start_time = datetime(reference_date.year, reference_date.month, 1)
         if reference_date.month == 12:
-            next_month = datetime(reference_date.year + 1, 1, 1)
-        else:
-            next_month = datetime(reference_date.year, reference_date.month + 1, 1)
-
-        buckets = []
-        cursor = month_start
-        while cursor < next_month:
-            next_day = cursor + timedelta(days=1)
-            buckets.append(TimeBucket(label=str(cursor.day), start_time=cursor, end_time=next_day))
-            cursor = next_day
-        return buckets
+            return start_time, datetime(reference_date.year + 1, 1, 1)
+        return start_time, datetime(reference_date.year, reference_date.month + 1, 1)
 
     if range_name == "year":
-        return [
-            TimeBucket(
-                label=f"{month}月",
-                start_time=datetime(reference_date.year, month, 1),
-                end_time=(
-                    datetime(reference_date.year + 1, 1, 1)
-                    if month == 12
-                    else datetime(reference_date.year, month + 1, 1)
-                ),
-            )
-            for month in range(1, 13)
-        ]
+        return datetime(reference_date.year, 1, 1), datetime(reference_date.year + 1, 1, 1)
 
     raise ValueError("range_name must be one of: day, week, month, year")

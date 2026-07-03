@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
-from datetime import datetime
+from datetime import date, datetime
 from tkinter import messagebox, ttk
 
 from flowmo.db import CATEGORIES, FlowmoStore, format_duration, utc_now_without_microseconds
@@ -40,14 +40,14 @@ class FlowmoApp(tk.Tk):
         self.timer_var = tk.StringVar(value="00:00:00")
         self.status_var = tk.StringVar(value="准备开始")
         self.coefficient_var = tk.StringVar(value=f"{self.store.get_break_coefficient():.1f}")
-        self.summary_period_var = tk.StringVar(value="week")
         self.visual_range_var = tk.StringVar(value="week")
+        self.calendar_date_var = tk.StringVar(value=date.today().isoformat())
         self.break_var = tk.StringVar(value="开始 session 后会在这里显示状态")
 
         self._build_ui()
         self._refresh_history()
-        self._refresh_summary()
         self._refresh_visualization()
+        self._refresh_calendar()
         self._tick()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -107,11 +107,11 @@ class FlowmoApp(tk.Tk):
         notebook.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 16))
 
         history_frame = ttk.Frame(notebook, padding=8)
-        summary_frame = ttk.Frame(notebook, padding=8)
         visualization_frame = ttk.Frame(notebook, padding=8)
+        calendar_frame = ttk.Frame(notebook, padding=8)
         notebook.add(history_frame, text="最近记录")
-        notebook.add(summary_frame, text="统计")
-        notebook.add(visualization_frame, text="可视化")
+        notebook.add(visualization_frame, text="统计")
+        notebook.add(calendar_frame, text="日历")
 
         history_frame.rowconfigure(0, weight=1)
         history_frame.columnconfigure(0, weight=1)
@@ -137,49 +137,8 @@ class FlowmoApp(tk.Tk):
         history_scroll.grid(row=0, column=1, sticky="ns")
         self.history.configure(yscrollcommand=history_scroll.set)
 
-        controls = ttk.Frame(summary_frame)
-        controls.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        ttk.Radiobutton(
-            controls,
-            text="每周",
-            variable=self.summary_period_var,
-            value="week",
-            command=self._refresh_summary,
-        ).grid(row=0, column=0, sticky="w")
-        ttk.Radiobutton(
-            controls,
-            text="每月",
-            variable=self.summary_period_var,
-            value="month",
-            command=self._refresh_summary,
-        ).grid(row=0, column=1, sticky="w", padx=(12, 0))
-        ttk.Radiobutton(
-            controls,
-            text="每年",
-            variable=self.summary_period_var,
-            value="year",
-            command=self._refresh_summary,
-        ).grid(row=0, column=2, sticky="w", padx=(12, 0))
-
-        summary_frame.rowconfigure(1, weight=1)
-        summary_frame.columnconfigure(0, weight=1)
-        self.summary = ttk.Treeview(
-            summary_frame,
-            columns=("period", "category", "sessions", "duration"),
-            show="headings",
-            height=12,
-        )
-        for column, label, width in (
-            ("period", "周期", 120),
-            ("category", "类别", 100),
-            ("sessions", "次数", 80),
-            ("duration", "总时长", 120),
-        ):
-            self.summary.heading(column, text=label)
-            self.summary.column(column, width=width, anchor="w")
-        self.summary.grid(row=1, column=0, sticky="nsew")
-
         self._build_visualization_tab(visualization_frame)
+        self._build_calendar_tab(calendar_frame)
 
     def _build_visualization_tab(self, parent: ttk.Frame) -> None:
         parent.rowconfigure(1, weight=1)
@@ -212,6 +171,35 @@ class FlowmoApp(tk.Tk):
 
         self.bar_canvas.bind("<Configure>", lambda _event: self._draw_visualization())
         self.pie_canvas.bind("<Configure>", lambda _event: self._draw_visualization())
+
+    def _build_calendar_tab(self, parent: ttk.Frame) -> None:
+        parent.rowconfigure(1, weight=1)
+        parent.columnconfigure(0, weight=3)
+        parent.columnconfigure(1, weight=2)
+
+        controls = ttk.Frame(parent)
+        controls.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        ttk.Label(controls, text="日期").grid(row=0, column=0, sticky="w")
+        date_entry = ttk.Entry(controls, textvariable=self.calendar_date_var, width=14)
+        date_entry.grid(row=0, column=1, sticky="w", padx=(8, 8))
+        date_entry.bind("<Return>", lambda _event: self._refresh_calendar())
+        ttk.Button(controls, text="查看", command=self._refresh_calendar).grid(row=0, column=2, sticky="w")
+
+        self.calendar_bar_canvas = tk.Canvas(parent, background="#ffffff", highlightthickness=1)
+        self.calendar_bar_canvas.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+        self.calendar_pie_canvas = tk.Canvas(parent, background="#ffffff", highlightthickness=1)
+        self.calendar_pie_canvas.grid(row=1, column=1, sticky="nsew")
+
+        legend = ttk.Frame(parent)
+        legend.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        for index, category in enumerate(CATEGORIES):
+            swatch = tk.Canvas(legend, width=14, height=14, highlightthickness=0)
+            swatch.create_rectangle(1, 1, 13, 13, fill=CATEGORY_COLORS[category], outline="")
+            swatch.grid(row=0, column=index * 2, sticky="w", padx=(0 if index == 0 else 12, 4))
+            ttk.Label(legend, text=category).grid(row=0, column=index * 2 + 1, sticky="w")
+
+        self.calendar_bar_canvas.bind("<Configure>", lambda _event: self._draw_calendar())
+        self.calendar_pie_canvas.bind("<Configure>", lambda _event: self._draw_calendar())
 
     def _start_session(self) -> None:
         self._save_coefficient()
@@ -252,8 +240,8 @@ class FlowmoApp(tk.Tk):
         self.status_var.set("休息中")
         self.break_remaining_seconds = session.break_seconds
         self._refresh_history()
-        self._refresh_summary()
         self._refresh_visualization()
+        self._refresh_calendar()
         self._run_break_timer()
 
     def _save_coefficient(self) -> float:
@@ -304,35 +292,59 @@ class FlowmoApp(tk.Tk):
                 ),
             )
 
-    def _refresh_summary(self) -> None:
-        self.summary.delete(*self.summary.get_children())
-        for row in self.store.summary(self.summary_period_var.get()):
-            self.summary.insert(
-                "",
-                "end",
-                values=(
-                    row.period,
-                    row.category,
-                    row.session_count,
-                    format_duration(row.total_seconds),
-                ),
-            )
-
     def _refresh_visualization(self) -> None:
         self._draw_visualization()
+
+    def _refresh_calendar(self) -> None:
+        self._draw_calendar()
 
     def _draw_visualization(self) -> None:
         if not hasattr(self, "bar_canvas") or not hasattr(self, "pie_canvas"):
             return
 
         range_name = self.visual_range_var.get()
-        bucket_rows = self.store.time_bucket_distribution(range_name)
-        category_rows = self.store.category_distribution(range_name)
-        self._draw_stacked_bar_chart(bucket_rows, range_name)
-        self._draw_pie_chart(category_rows, range_name)
+        self._draw_charts(self.bar_canvas, self.pie_canvas, range_name, None, RANGE_LABELS[range_name])
 
-    def _draw_stacked_bar_chart(self, bucket_rows, range_name: str) -> None:
-        canvas = self.bar_canvas
+    def _draw_calendar(self) -> None:
+        if not hasattr(self, "calendar_bar_canvas") or not hasattr(self, "calendar_pie_canvas"):
+            return
+
+        try:
+            selected_date = date.fromisoformat(self.calendar_date_var.get().strip())
+        except ValueError:
+            self.calendar_bar_canvas.delete("all")
+            self.calendar_pie_canvas.delete("all")
+            for canvas in (self.calendar_bar_canvas, self.calendar_pie_canvas):
+                self._draw_empty_state(
+                    canvas,
+                    max(canvas.winfo_width(), 1),
+                    max(canvas.winfo_height(), 1),
+                    "请输入 YYYY-MM-DD 格式的日期",
+                )
+            return
+
+        self._draw_charts(
+            self.calendar_bar_canvas,
+            self.calendar_pie_canvas,
+            "day",
+            selected_date,
+            selected_date.isoformat(),
+        )
+
+    def _draw_charts(
+        self,
+        bar_canvas: tk.Canvas,
+        pie_canvas: tk.Canvas,
+        range_name: str,
+        reference_date: date | None,
+        title_label: str,
+    ) -> None:
+        bucket_rows = self.store.time_bucket_distribution(range_name, reference_date)
+        category_rows = self.store.category_distribution(range_name, reference_date)
+        self._draw_stacked_bar_chart(bar_canvas, bucket_rows, title_label)
+        self._draw_pie_chart(pie_canvas, category_rows, title_label)
+
+    def _draw_stacked_bar_chart(self, canvas: tk.Canvas, bucket_rows, title_label: str) -> None:
         canvas.delete("all")
         width = max(canvas.winfo_width(), 1)
         height = max(canvas.winfo_height(), 1)
@@ -347,7 +359,7 @@ class FlowmoApp(tk.Tk):
             16,
             18,
             anchor="w",
-            text=f"{RANGE_LABELS[range_name]}各时段工作分布",
+            text=f"{title_label}各时段工作分布",
             font=("Segoe UI", 12, "bold"),
         )
 
@@ -376,7 +388,7 @@ class FlowmoApp(tk.Tk):
         bucket_count = len(bucket_rows)
         gap = 4 if bucket_count > 12 else 10
         bar_width = max((chart_width - gap * (bucket_count - 1)) / max(bucket_count, 1), 2)
-        label_step = self._label_step(range_name, bucket_count)
+        label_step = 3
 
         for index, row in enumerate(bucket_rows):
             x0 = margin_left + index * (bar_width + gap)
@@ -417,8 +429,7 @@ class FlowmoApp(tk.Tk):
             fill="#333333",
         )
 
-    def _draw_pie_chart(self, category_rows, range_name: str) -> None:
-        canvas = self.pie_canvas
+    def _draw_pie_chart(self, canvas: tk.Canvas, category_rows, title_label: str) -> None:
         canvas.delete("all")
         width = max(canvas.winfo_width(), 1)
         height = max(canvas.winfo_height(), 1)
@@ -427,7 +438,7 @@ class FlowmoApp(tk.Tk):
             16,
             18,
             anchor="w",
-            text=f"{RANGE_LABELS[range_name]}类别占比",
+            text=f"{title_label}类别占比",
             font=("Segoe UI", 12, "bold"),
         )
 
@@ -436,9 +447,18 @@ class FlowmoApp(tk.Tk):
             self._draw_empty_state(canvas, width, height, "当前范围还没有工作记录")
             return
 
+        canvas.create_text(
+            16,
+            42,
+            anchor="w",
+            text=f"总工作时长：{self._format_hours(total_seconds)}",
+            font=("Segoe UI", 10),
+            fill="#333333",
+        )
+
         diameter = min(width * 0.52, height * 0.48, 220)
         x0 = 24
-        y0 = 58
+        y0 = 76
         x1 = x0 + diameter
         y1 = y0 + diameter
 
@@ -494,13 +514,6 @@ class FlowmoApp(tk.Tk):
             minutes = int(round(seconds / 60))
             return f"{minutes} 分钟"
         return f"{hours:.1f} 小时"
-
-    def _label_step(self, range_name: str, bucket_count: int) -> int:
-        if range_name == "day":
-            return 3
-        if range_name == "month" and bucket_count > 16:
-            return 3
-        return 1
 
     def _on_close(self) -> None:
         if self.current_start is not None:
