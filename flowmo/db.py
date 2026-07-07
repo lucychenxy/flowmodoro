@@ -31,6 +31,7 @@ class WorkSession:
     duration_seconds: int
     break_seconds: int
     category_edit_used: bool = False
+    end_time_edit_used: bool = False
 
 
 @dataclass(frozen=True)
@@ -91,7 +92,8 @@ class FlowmoStore:
                     end_time TEXT NOT NULL,
                     duration_seconds INTEGER NOT NULL,
                     break_seconds INTEGER NOT NULL,
-                    category_edit_used INTEGER NOT NULL DEFAULT 0
+                    category_edit_used INTEGER NOT NULL DEFAULT 0,
+                    end_time_edit_used INTEGER NOT NULL DEFAULT 0
                 )
                 """
             )
@@ -102,6 +104,10 @@ class FlowmoStore:
             if "category_edit_used" not in columns:
                 self.connection.execute(
                     "ALTER TABLE sessions ADD COLUMN category_edit_used INTEGER NOT NULL DEFAULT 0"
+                )
+            if "end_time_edit_used" not in columns:
+                self.connection.execute(
+                    "ALTER TABLE sessions ADD COLUMN end_time_edit_used INTEGER NOT NULL DEFAULT 0"
                 )
             self.connection.execute(
                 """
@@ -213,6 +219,7 @@ class FlowmoStore:
             duration_seconds=duration_seconds,
             break_seconds=break_seconds,
             category_edit_used=False,
+            end_time_edit_used=False,
         )
 
     def update_session_category_once(self, session_id: int, new_category: str) -> WorkSession:
@@ -240,6 +247,53 @@ class FlowmoStore:
                 WHERE id = ?
                 """,
                 (new_category, session_id),
+            )
+
+        updated = self.connection.execute(
+            "SELECT * FROM sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+        return self._row_to_session(updated)
+
+    def update_session_end_time_once(self, session_id: int, new_end_time: datetime) -> WorkSession:
+        row = self.connection.execute(
+            "SELECT * FROM sessions WHERE id = ?",
+            (session_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("Session not found.")
+
+        session = self._row_to_session(row)
+        if session.end_time_edit_used:
+            raise ValueError("This session's end time has already been edited once.")
+        if new_end_time <= session.start_time:
+            raise ValueError("End time must be later than start time.")
+        if new_end_time == session.end_time:
+            raise ValueError("New end time must be different from the current end time.")
+
+        duration_seconds = int((new_end_time - session.start_time).total_seconds())
+        if session.duration_seconds > 0 and session.break_seconds > 0:
+            coefficient = session.duration_seconds / session.break_seconds
+        else:
+            coefficient = self.get_break_coefficient()
+        break_seconds = int(duration_seconds / coefficient)
+
+        with self.connection:
+            self.connection.execute(
+                """
+                UPDATE sessions
+                SET end_time = ?,
+                    duration_seconds = ?,
+                    break_seconds = ?,
+                    end_time_edit_used = 1
+                WHERE id = ?
+                """,
+                (
+                    new_end_time.isoformat(timespec="seconds"),
+                    duration_seconds,
+                    break_seconds,
+                    session_id,
+                ),
             )
 
         updated = self.connection.execute(
@@ -356,6 +410,7 @@ class FlowmoStore:
             duration_seconds=int(row["duration_seconds"]),
             break_seconds=int(row["break_seconds"]),
             category_edit_used=bool(row["category_edit_used"]),
+            end_time_edit_used=bool(row["end_time_edit_used"]),
         )
 
 

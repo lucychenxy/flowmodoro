@@ -59,6 +59,7 @@ class FlowmoApp(tk.Tk):
         self.break_remaining_seconds = 0
         self.break_timer_job: str | None = None
         self.category_cell_editor: ttk.Combobox | None = None
+        self.end_time_cell_editor: ttk.Entry | None = None
         self.language = normalize_language(self.store.get_language())
 
         self.category_var = tk.StringVar(value="")
@@ -160,7 +161,16 @@ class FlowmoApp(tk.Tk):
         log_frame.columnconfigure(0, weight=1)
         self.history = ttk.Treeview(
             log_frame,
-            columns=("category", "task", "start", "end", "duration", "break", "edited"),
+            columns=(
+                "category",
+                "task",
+                "start",
+                "end",
+                "duration",
+                "break",
+                "category_edited",
+                "end_edited",
+            ),
             show="headings",
             height=12,
         )
@@ -168,10 +178,11 @@ class FlowmoApp(tk.Tk):
             ("category", self.t("editable_category_column"), 150),
             ("task", self.t("task_column"), 240),
             ("start", self.t("start_column"), 150),
-            ("end", self.t("end_column"), 150),
+            ("end", self.t("editable_end_column"), 150),
             ("duration", self.t("duration_column"), 100),
             ("break", self.t("break_column"), 120),
-            ("edited", self.t("category_edited_column"), 120),
+            ("category_edited", self.t("category_edited_column"), 120),
+            ("end_edited", self.t("end_time_edited_column"), 120),
         ):
             self.history.heading(column, text=label)
             self.history.column(column, width=width, anchor="w")
@@ -180,9 +191,9 @@ class FlowmoApp(tk.Tk):
         history_scroll = ttk.Scrollbar(log_frame, orient="vertical", command=self._scroll_history)
         history_scroll.grid(row=0, column=1, sticky="ns")
         self.history.configure(yscrollcommand=history_scroll.set)
-        self.history.bind("<<TreeviewSelect>>", self._show_selected_category_editor)
-        self.history.bind("<Configure>", lambda _event: self._close_category_cell_editor())
-        self.history.bind("<MouseWheel>", lambda _event: self._close_category_cell_editor())
+        self.history.bind("<<TreeviewSelect>>", self._show_selected_log_editors)
+        self.history.bind("<Configure>", lambda _event: self._close_log_cell_editors())
+        self.history.bind("<MouseWheel>", lambda _event: self._close_log_cell_editors())
 
         self._build_visualization_tab(visualization_frame)
         self._build_calendar_tab(calendar_frame)
@@ -459,7 +470,7 @@ class FlowmoApp(tk.Tk):
         self.break_timer_job = self.after(1000, self._run_break_timer)
 
     def _refresh_log(self) -> None:
-        self._close_category_cell_editor()
+        self._close_log_cell_editors()
         self.history.delete(*self.history.get_children())
         for session in self.store.recent_sessions():
             self.history.insert(
@@ -474,20 +485,30 @@ class FlowmoApp(tk.Tk):
                     format_duration(session.duration_seconds),
                     format_duration(session.break_seconds),
                     self.t("yes") if session.category_edit_used else self.t("no"),
+                    self.t("yes") if session.end_time_edit_used else self.t("no"),
                 ),
             )
 
     def _scroll_history(self, *args) -> None:
-        self._close_category_cell_editor()
+        self._close_log_cell_editors()
         self.history.yview(*args)
+
+    def _close_log_cell_editors(self) -> None:
+        self._close_category_cell_editor()
+        self._close_end_time_cell_editor()
 
     def _close_category_cell_editor(self) -> None:
         if self.category_cell_editor is not None and self.category_cell_editor.winfo_exists():
             self.category_cell_editor.destroy()
         self.category_cell_editor = None
 
-    def _show_selected_category_editor(self, _event: tk.Event | None = None) -> None:
-        self._close_category_cell_editor()
+    def _close_end_time_cell_editor(self) -> None:
+        if self.end_time_cell_editor is not None and self.end_time_cell_editor.winfo_exists():
+            self.end_time_cell_editor.destroy()
+        self.end_time_cell_editor = None
+
+    def _show_selected_log_editors(self, _event: tk.Event | None = None) -> None:
+        self._close_log_cell_editors()
         selected = self.history.selection()
         if not selected:
             return
@@ -500,9 +521,12 @@ class FlowmoApp(tk.Tk):
         )
         if session is None:
             return
+        self._show_category_cell_editor(row_id, session)
+        self._show_end_time_cell_editor(row_id, session)
+
+    def _show_category_cell_editor(self, row_id: str, session) -> None:
         if session.category_edit_used:
             return
-
         cell_box = self.history.bbox(row_id, "#1")
         if not cell_box:
             return
@@ -527,10 +551,63 @@ class FlowmoApp(tk.Tk):
         def on_select(_event: tk.Event) -> None:
             selected_label = editor_var.get()
             self._close_category_cell_editor()
-            self._confirm_category_edit(session_id, session.category, selected_label)
+            self._confirm_category_edit(session.id, session.category, selected_label)
 
         editor.bind("<<ComboboxSelected>>", on_select)
         editor.bind("<Escape>", lambda _event: self._close_category_cell_editor())
+
+    def _show_end_time_cell_editor(self, row_id: str, session) -> None:
+        if session.end_time_edit_used:
+            return
+        cell_box = self.history.bbox(row_id, "#4")
+        if not cell_box:
+            return
+        x, y, width, height = cell_box
+        end_time_text = session.end_time.strftime("%Y-%m-%d %H:%M:%S")
+        editor_var = tk.StringVar(value=end_time_text)
+        editor = ttk.Entry(self.history, textvariable=editor_var)
+        editor.place(x=x, y=y, width=width, height=height)
+        self.end_time_cell_editor = editor
+
+        def on_return(_event: tk.Event) -> str:
+            selected_text = editor_var.get().strip()
+            self._close_end_time_cell_editor()
+            self._confirm_end_time_edit(session.id, session.end_time, selected_text)
+            return "break"
+
+        editor.bind("<Return>", on_return)
+        editor.bind("<Escape>", lambda _event: self._close_end_time_cell_editor())
+
+    def _confirm_end_time_edit(
+        self, session_id: int, old_end_time: datetime, end_time_text: str
+    ) -> None:
+        try:
+            new_end_time = datetime.strptime(end_time_text, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            messagebox.showerror(self.t("end_time_edit_error"), self.t("invalid_end_time_format"))
+            return
+        if new_end_time == old_end_time:
+            return
+
+        old_text = old_end_time.strftime("%Y-%m-%d %H:%M:%S")
+        new_text = new_end_time.strftime("%Y-%m-%d %H:%M:%S")
+        confirmed = messagebox.askyesno(
+            self.t("edit_end_time_title"),
+            self.t("confirm_end_time_edit", old=old_text, new=new_text),
+        )
+        if not confirmed:
+            return
+
+        try:
+            self.store.update_session_end_time_once(session_id, new_end_time)
+        except ValueError as exc:
+            messagebox.showerror(self.t("end_time_edit_error"), str(exc))
+            return
+
+        self._refresh_log()
+        self._refresh_visualization()
+        self._refresh_calendar()
+        messagebox.showinfo(self.t("edit_end_time_title"), self.t("end_time_edit_success"))
 
     def _confirm_category_edit(
         self, session_id: int, old_category: str, category_label_value: str

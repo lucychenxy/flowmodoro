@@ -24,6 +24,7 @@ class FlowmoStoreTests(unittest.TestCase):
         self.assertEqual(session.duration_seconds, 3000)
         self.assertEqual(session.break_seconds, 600)
         self.assertFalse(session.category_edit_used)
+        self.assertFalse(session.end_time_edit_used)
 
     def test_session_category_can_be_edited_once(self) -> None:
         start = datetime(2026, 7, 3, 9, 0, 0)
@@ -46,6 +47,33 @@ class FlowmoStoreTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             self.store.update_session_category_once(session.id, "阅读")
+
+    def test_session_end_time_can_be_edited_once(self) -> None:
+        start = datetime(2026, 7, 3, 9, 0, 0)
+        session = self.store.add_session(
+            "阅读", "Forgot to stop", start, start + timedelta(hours=2), coefficient=5
+        )
+
+        updated = self.store.update_session_end_time_once(
+            session.id,
+            start + timedelta(minutes=45),
+        )
+
+        self.assertEqual(updated.end_time, start + timedelta(minutes=45))
+        self.assertEqual(updated.duration_seconds, 2700)
+        self.assertEqual(updated.break_seconds, 540)
+        self.assertTrue(updated.end_time_edit_used)
+        with self.assertRaises(ValueError):
+            self.store.update_session_end_time_once(session.id, start + timedelta(minutes=30))
+
+    def test_session_end_time_edit_must_be_after_start(self) -> None:
+        start = datetime(2026, 7, 3, 9, 0, 0)
+        session = self.store.add_session(
+            "阅读", "Invalid correction", start, start + timedelta(hours=1), coefficient=5
+        )
+
+        with self.assertRaises(ValueError):
+            self.store.update_session_end_time_once(session.id, start)
 
     def test_break_coefficient_must_be_greater_than_three(self) -> None:
         with self.assertRaises(ValueError):
