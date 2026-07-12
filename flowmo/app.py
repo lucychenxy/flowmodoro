@@ -986,7 +986,7 @@ class FlowmoApp(tk.Tk):
                         font=("Segoe UI", 8),
                         fill="#1f2933",
                     )
-                    if row and row.total_seconds > 0 and cell_size >= 34:
+                    if row and cell_size >= 34:
                         canvas.create_text(
                             (x0 + x1) / 2,
                             y1 - 12,
