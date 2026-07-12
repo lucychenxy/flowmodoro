@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from flowmo.db import FlowmoStore, build_range_bounds, build_time_buckets, format_duration
+from flowmo.db import CATEGORIES, FlowmoStore, build_range_bounds, build_time_buckets, format_duration
 
 
 class FlowmoStoreTests(unittest.TestCase):
@@ -136,6 +136,38 @@ class FlowmoStoreTests(unittest.TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0].category, "会议")
         self.assertEqual(rows[0].total_seconds, 3600)
+
+    def test_daily_totals_for_week_split_by_day(self) -> None:
+        monday = datetime(2026, 7, 6, 9, 0, 0)
+        tuesday = datetime(2026, 7, 7, 10, 0, 0)
+        self.store.add_session(CATEGORIES[0], "Monday", monday, monday + timedelta(hours=2), coefficient=5)
+        self.store.add_session(CATEGORIES[0], "Tuesday", tuesday, tuesday + timedelta(minutes=30), coefficient=5)
+
+        rows = self.store.daily_totals("week", reference_date=monday.date())
+
+        self.assertEqual(len(rows), 7)
+        self.assertEqual(rows[0].start_date.isoformat(), "2026-07-06")
+        self.assertEqual(rows[0].total_seconds, 7200)
+        self.assertEqual(rows[1].total_seconds, 1800)
+
+    def test_daily_totals_for_month_split_sessions_across_midnight(self) -> None:
+        start = datetime(2026, 7, 1, 23, 30, 0)
+        self.store.add_session(CATEGORIES[0], "Late work", start, start + timedelta(hours=1), coefficient=5)
+
+        rows = self.store.daily_totals("month", reference_date=start.date())
+
+        self.assertEqual(rows[0].total_seconds, 1800)
+        self.assertEqual(rows[1].total_seconds, 1800)
+
+    def test_monthly_totals_split_sessions_across_months(self) -> None:
+        start = datetime(2026, 1, 31, 23, 0, 0)
+        self.store.add_session(CATEGORIES[0], "Month boundary", start, start + timedelta(hours=2), coefficient=5)
+
+        rows = self.store.monthly_totals(reference_date=start.date())
+
+        self.assertEqual(len(rows), 12)
+        self.assertEqual(rows[0].total_seconds, 3600)
+        self.assertEqual(rows[1].total_seconds, 3600)
 
 
 class FormattingTests(unittest.TestCase):

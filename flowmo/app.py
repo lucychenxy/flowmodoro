@@ -202,9 +202,10 @@ class FlowmoApp(tk.Tk):
         parent.rowconfigure(1, weight=1)
         parent.columnconfigure(0, weight=3)
         parent.columnconfigure(1, weight=2)
+        parent.columnconfigure(2, weight=2)
 
         controls = ttk.Frame(parent)
-        controls.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        controls.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 8))
         for index, (range_name, label_key) in enumerate(RANGE_LABEL_KEYS.items()):
             ttk.Radiobutton(
                 controls,
@@ -216,11 +217,13 @@ class FlowmoApp(tk.Tk):
 
         self.bar_canvas = tk.Canvas(parent, background="#ffffff", highlightthickness=1)
         self.bar_canvas.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+        self.period_canvas = tk.Canvas(parent, background="#ffffff", highlightthickness=1)
+        self.period_canvas.grid(row=1, column=1, sticky="nsew", padx=(0, 8))
         self.pie_canvas = tk.Canvas(parent, background="#ffffff", highlightthickness=1)
-        self.pie_canvas.grid(row=1, column=1, sticky="nsew")
+        self.pie_canvas.grid(row=1, column=2, sticky="nsew")
 
         legend = ttk.Frame(parent)
-        legend.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        legend.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         for index, category in enumerate(CATEGORIES):
             swatch = tk.Canvas(legend, width=14, height=14, highlightthickness=0)
             swatch.create_rectangle(1, 1, 13, 13, fill=CATEGORY_COLORS[category], outline="")
@@ -230,15 +233,17 @@ class FlowmoApp(tk.Tk):
             )
 
         self.bar_canvas.bind("<Configure>", lambda _event: self._draw_visualization())
+        self.period_canvas.bind("<Configure>", lambda _event: self._draw_visualization())
         self.pie_canvas.bind("<Configure>", lambda _event: self._draw_visualization())
 
     def _build_calendar_tab(self, parent: ttk.Frame) -> None:
         parent.rowconfigure(1, weight=1)
         parent.columnconfigure(0, weight=3)
         parent.columnconfigure(1, weight=2)
+        parent.columnconfigure(2, weight=2)
 
         controls = ttk.Frame(parent)
-        controls.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 8))
+        controls.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 8))
         for index, (range_name, label_key) in enumerate(HISTORY_RANGE_LABEL_KEYS.items()):
             ttk.Radiobutton(
                 controls,
@@ -262,11 +267,13 @@ class FlowmoApp(tk.Tk):
 
         self.calendar_bar_canvas = tk.Canvas(parent, background="#ffffff", highlightthickness=1)
         self.calendar_bar_canvas.grid(row=1, column=0, sticky="nsew", padx=(0, 8))
+        self.calendar_period_canvas = tk.Canvas(parent, background="#ffffff", highlightthickness=1)
+        self.calendar_period_canvas.grid(row=1, column=1, sticky="nsew", padx=(0, 8))
         self.calendar_pie_canvas = tk.Canvas(parent, background="#ffffff", highlightthickness=1)
-        self.calendar_pie_canvas.grid(row=1, column=1, sticky="nsew")
+        self.calendar_pie_canvas.grid(row=1, column=2, sticky="nsew")
 
         legend = ttk.Frame(parent)
-        legend.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(8, 0))
+        legend.grid(row=2, column=0, columnspan=3, sticky="ew", pady=(8, 0))
         for index, category in enumerate(CATEGORIES):
             swatch = tk.Canvas(legend, width=14, height=14, highlightthickness=0)
             swatch.create_rectangle(1, 1, 13, 13, fill=CATEGORY_COLORS[category], outline="")
@@ -276,6 +283,7 @@ class FlowmoApp(tk.Tk):
             )
 
         self.calendar_bar_canvas.bind("<Configure>", lambda _event: self._draw_calendar())
+        self.calendar_period_canvas.bind("<Configure>", lambda _event: self._draw_calendar())
         self.calendar_pie_canvas.bind("<Configure>", lambda _event: self._draw_calendar())
 
     def _open_date_picker(self) -> None:
@@ -646,32 +654,59 @@ class FlowmoApp(tk.Tk):
         self._draw_calendar()
 
     def _draw_visualization(self) -> None:
-        if not hasattr(self, "bar_canvas") or not hasattr(self, "pie_canvas"):
+        if not hasattr(self, "bar_canvas") or not hasattr(self, "period_canvas") or not hasattr(self, "pie_canvas"):
             return
 
         range_name = self.visual_range_var.get()
+        self._sync_chart_layout(self.period_canvas, self.pie_canvas, range_name)
         self._draw_charts(
-            self.bar_canvas, self.pie_canvas, range_name, None, self.t(RANGE_LABEL_KEYS[range_name])
+            self.bar_canvas,
+            self.period_canvas,
+            self.pie_canvas,
+            range_name,
+            None,
+            self.t(RANGE_LABEL_KEYS[range_name]),
         )
 
     def _draw_calendar(self) -> None:
-        if not hasattr(self, "calendar_bar_canvas") or not hasattr(self, "calendar_pie_canvas"):
+        if not hasattr(self, "calendar_bar_canvas") or not hasattr(self, "calendar_period_canvas") or not hasattr(self, "calendar_pie_canvas"):
             return
 
         selected_date = date.fromisoformat(self.calendar_date_var.get().strip())
         range_name = self.history_range_var.get()
+        self._sync_chart_layout(self.calendar_period_canvas, self.calendar_pie_canvas, range_name)
 
         self._draw_charts(
             self.calendar_bar_canvas,
+            self.calendar_period_canvas,
             self.calendar_pie_canvas,
             range_name,
             selected_date,
             self._history_title(range_name, selected_date),
         )
 
+    def _sync_chart_layout(
+        self, period_canvas: tk.Canvas, pie_canvas: tk.Canvas, range_name: str
+    ) -> None:
+        chart_parent = period_canvas.master
+        if range_name == "day":
+            chart_parent.columnconfigure(0, weight=3)
+            chart_parent.columnconfigure(1, weight=2)
+            chart_parent.columnconfigure(2, weight=0)
+            period_canvas.grid_remove()
+            pie_canvas.grid_configure(column=1)
+            return
+
+        chart_parent.columnconfigure(0, weight=3)
+        chart_parent.columnconfigure(1, weight=2)
+        chart_parent.columnconfigure(2, weight=2)
+        period_canvas.grid(row=1, column=1, sticky="nsew", padx=(0, 8))
+        pie_canvas.grid_configure(column=2)
+
     def _draw_charts(
         self,
         bar_canvas: tk.Canvas,
+        period_canvas: tk.Canvas,
         pie_canvas: tk.Canvas,
         range_name: str,
         reference_date: date | None,
@@ -680,6 +715,10 @@ class FlowmoApp(tk.Tk):
         bucket_rows = self.store.time_bucket_distribution(range_name, reference_date)
         category_rows = self.store.category_distribution(range_name, reference_date)
         self._draw_stacked_bar_chart(bar_canvas, bucket_rows, title_label)
+        if range_name == "day":
+            period_canvas.delete("all")
+        else:
+            self._draw_period_chart(period_canvas, range_name, reference_date, title_label)
         self._draw_pie_chart(pie_canvas, category_rows, title_label)
 
     def _draw_stacked_bar_chart(self, canvas: tk.Canvas, bucket_rows, title_label: str) -> None:
@@ -770,6 +809,198 @@ class FlowmoApp(tk.Tk):
             font=("Segoe UI", 9),
             fill="#333333",
         )
+
+    def _draw_period_chart(
+        self,
+        canvas: tk.Canvas,
+        range_name: str,
+        reference_date: date | None,
+        title_label: str,
+    ) -> None:
+        if range_name == "week":
+            rows = self.store.daily_totals("week", reference_date)
+            labels = [WEEKDAYS[self.language][row.start_date.weekday()] for row in rows]
+            self._draw_simple_bar_chart(
+                canvas,
+                labels,
+                [row.total_seconds for row in rows],
+                self.t("daily_work_distribution", title=title_label),
+            )
+            return
+
+        if range_name == "month":
+            rows = self.store.daily_totals("month", reference_date)
+            self._draw_month_calendar_heatmap(canvas, rows, title_label)
+            return
+
+        if range_name == "year":
+            rows = self.store.monthly_totals(reference_date)
+            self._draw_simple_bar_chart(
+                canvas,
+                [self.t("month_short", value=int(row.label)) for row in rows],
+                [row.total_seconds for row in rows],
+                self.t("monthly_work_distribution", title=title_label),
+            )
+
+    def _draw_simple_bar_chart(
+        self, canvas: tk.Canvas, labels: list[str], values: list[int], title: str
+    ) -> None:
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 1)
+        height = max(canvas.winfo_height(), 1)
+        margin_left = 54
+        margin_right = 18
+        margin_top = 52
+        margin_bottom = 58
+        chart_width = max(width - margin_left - margin_right, 1)
+        chart_height = max(height - margin_top - margin_bottom, 1)
+
+        canvas.create_text(16, 18, anchor="w", text=title, font=("Segoe UI", 12, "bold"))
+        max_seconds = max(values, default=0)
+        if max_seconds <= 0:
+            self._draw_empty_state(canvas, width, height, self.t("no_records"))
+            return
+
+        y_axis_bottom = margin_top + chart_height
+        canvas.create_line(margin_left, margin_top, margin_left, y_axis_bottom, fill="#777777")
+        canvas.create_line(margin_left, y_axis_bottom, width - margin_right, y_axis_bottom, fill="#777777")
+
+        for index in range(5):
+            value = max_seconds * index / 4
+            y = y_axis_bottom - (value / max_seconds) * chart_height
+            canvas.create_line(margin_left - 4, y, width - margin_right, y, fill="#eeeeee")
+            canvas.create_text(
+                margin_left - 8,
+                y,
+                anchor="e",
+                text=self._format_hours(value),
+                font=("Segoe UI", 8),
+                fill="#555555",
+            )
+
+        gap = 8 if len(values) <= 7 else 5
+        bar_width = max((chart_width - gap * (len(values) - 1)) / max(len(values), 1), 3)
+        for index, value in enumerate(values):
+            x0 = margin_left + index * (bar_width + gap)
+            x1 = x0 + bar_width
+            y0 = y_axis_bottom - (value / max_seconds) * chart_height
+            canvas.create_rectangle(x0, y0, x1, y_axis_bottom, fill="#4F9A9A", outline="#ffffff")
+            canvas.create_text(
+                (x0 + x1) / 2,
+                y_axis_bottom + 14,
+                text=labels[index],
+                font=("Segoe UI", 8),
+                fill="#444444",
+            )
+
+        busiest_index = max(range(len(values)), key=lambda index: values[index])
+        canvas.create_text(
+            margin_left,
+            height - 22,
+            anchor="w",
+            text=self.t(
+                "busiest_period",
+                label=labels[busiest_index],
+                duration=self._format_hours(values[busiest_index]),
+            ),
+            font=("Segoe UI", 9),
+            fill="#333333",
+        )
+
+    def _draw_month_calendar_heatmap(self, canvas: tk.Canvas, rows, title_label: str) -> None:
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 1)
+        height = max(canvas.winfo_height(), 1)
+        canvas.create_text(
+            16,
+            18,
+            anchor="w",
+            text=self.t("daily_calendar_heatmap", title=title_label),
+            font=("Segoe UI", 12, "bold"),
+        )
+
+        if not rows:
+            self._draw_empty_state(canvas, width, height, self.t("no_records"))
+            return
+
+        max_seconds = max((row.total_seconds for row in rows), default=0)
+        today = date.today()
+        month_weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(
+            rows[0].start_date.year, rows[0].start_date.month
+        )
+        row_by_date = {row.start_date: row for row in rows}
+        grid_left = 18
+        grid_top = 56
+        available_width = max(width - 36, 1)
+        available_height = max(height - grid_top - 36, 1)
+        cell_gap = 4
+        cell_size = max(
+            min(
+                (available_width - cell_gap * 6) / 7,
+                (available_height - cell_gap * (len(month_weeks) - 1)) / max(len(month_weeks), 1),
+            ),
+            18,
+        )
+
+        for index, weekday in enumerate(WEEKDAYS[self.language]):
+            x = grid_left + index * (cell_size + cell_gap) + cell_size / 2
+            canvas.create_text(x, grid_top - 14, text=weekday, font=("Segoe UI", 8), fill="#555555")
+
+        for week_index, week in enumerate(month_weeks):
+            for day_index, day_value in enumerate(week):
+                x0 = grid_left + day_index * (cell_size + cell_gap)
+                y0 = grid_top + week_index * (cell_size + cell_gap)
+                x1 = x0 + cell_size
+                y1 = y0 + cell_size
+                row = row_by_date.get(day_value)
+                if row is None:
+                    fill = "#f4f4f4"
+                    text = ""
+                elif day_value > today:
+                    fill = "#eeeeee"
+                    text = ""
+                else:
+                    fill = self._crest_color(row.total_seconds / max_seconds if max_seconds else 0)
+                    text = str(day_value.day)
+                canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#ffffff")
+                if text:
+                    canvas.create_text(
+                        (x0 + x1) / 2,
+                        y0 + 12,
+                        text=text,
+                        font=("Segoe UI", 8),
+                        fill="#1f2933",
+                    )
+                    if row and row.total_seconds > 0 and cell_size >= 34:
+                        canvas.create_text(
+                            (x0 + x1) / 2,
+                            y1 - 12,
+                            text=self._format_hours(row.total_seconds),
+                            font=("Segoe UI", 7),
+                            fill="#1f2933",
+                        )
+
+    def _crest_color(self, value: float) -> str:
+        value = max(0.0, min(1.0, value))
+        stops = (
+            (0.0, (231, 244, 235)),
+            (0.35, (133, 194, 174)),
+            (0.70, (46, 129, 145)),
+            (1.0, (43, 45, 110)),
+        )
+        for index in range(len(stops) - 1):
+            left_value, left_color = stops[index]
+            right_value, right_color = stops[index + 1]
+            if value <= right_value:
+                span = right_value - left_value
+                ratio = 0 if span == 0 else (value - left_value) / span
+                rgb = tuple(
+                    int(left_color[channel] + (right_color[channel] - left_color[channel]) * ratio)
+                    for channel in range(3)
+                )
+                return f"#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}"
+        r, g, b = stops[-1][1]
+        return f"#{r:02x}{g:02x}{b:02x}"
 
     def _draw_pie_chart(self, canvas: tk.Canvas, category_rows, title_label: str) -> None:
         canvas.delete("all")

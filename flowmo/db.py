@@ -65,6 +65,13 @@ class CategoryTotal:
     total_seconds: int
 
 
+@dataclass(frozen=True)
+class PeriodTotal:
+    label: str
+    start_date: date
+    total_seconds: int
+
+
 def utc_now_without_microseconds() -> datetime:
     return datetime.now().replace(microsecond=0)
 
@@ -398,6 +405,63 @@ class FlowmoStore:
             CategoryTotal(category=category, total_seconds=seconds)
             for category, seconds in totals.items()
             if seconds > 0
+        ]
+
+    def daily_totals(
+        self, range_name: str, reference_date: date | None = None
+    ) -> list[PeriodTotal]:
+        if range_name not in {"week", "month"}:
+            raise ValueError("range_name must be one of: week, month")
+
+        start_time, end_time = build_range_bounds(range_name, reference_date)
+        day_count = (end_time.date() - start_time.date()).days
+        totals = [0 for _ in range(day_count)]
+        sessions = self.sessions_between(start_time, end_time)
+
+        for session in sessions:
+            cursor = max(session.start_time, start_time)
+            session_end = min(session.end_time, end_time)
+            while cursor < session_end:
+                next_day = datetime.combine(cursor.date() + timedelta(days=1), time.min)
+                segment_end = min(next_day, session_end)
+                index = (cursor.date() - start_time.date()).days
+                totals[index] += int((segment_end - cursor).total_seconds())
+                cursor = segment_end
+
+        return [
+            PeriodTotal(
+                label=(start_time.date() + timedelta(days=index)).isoformat(),
+                start_date=start_time.date() + timedelta(days=index),
+                total_seconds=seconds,
+            )
+            for index, seconds in enumerate(totals)
+        ]
+
+    def monthly_totals(self, reference_date: date | None = None) -> list[PeriodTotal]:
+        reference_date = reference_date or date.today()
+        year_start = datetime(reference_date.year, 1, 1)
+        year_end = datetime(reference_date.year + 1, 1, 1)
+        totals = [0 for _ in range(12)]
+
+        for session in self.sessions_between(year_start, year_end):
+            cursor = max(session.start_time, year_start)
+            session_end = min(session.end_time, year_end)
+            while cursor < session_end:
+                if cursor.month == 12:
+                    next_month = datetime(cursor.year + 1, 1, 1)
+                else:
+                    next_month = datetime(cursor.year, cursor.month + 1, 1)
+                segment_end = min(next_month, session_end)
+                totals[cursor.month - 1] += int((segment_end - cursor).total_seconds())
+                cursor = segment_end
+
+        return [
+            PeriodTotal(
+                label=f"{month:02d}",
+                start_date=date(reference_date.year, month, 1),
+                total_seconds=totals[month - 1],
+            )
+            for month in range(1, 13)
         ]
 
     def _row_to_session(self, row: sqlite3.Row) -> WorkSession:
