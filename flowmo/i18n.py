@@ -14,6 +14,7 @@ CATEGORY_LABELS = {
         "写作": "Writing",
         "教学": "Teaching",
         "会议": "Meetings",
+        "讲座/研讨": "Seminars / Workshops",
         "后勤": "Admin",
     },
     "zh": {
@@ -22,6 +23,7 @@ CATEGORY_LABELS = {
         "写作": "写作",
         "教学": "教学",
         "会议": "会议",
+        "讲座/研讨": "讲座/研讨",
         "后勤": "后勤",
     },
     "de": {
@@ -30,6 +32,7 @@ CATEGORY_LABELS = {
         "写作": "Schreiben",
         "教学": "Lehre",
         "会议": "Besprechungen",
+        "讲座/研讨": "Seminare / Workshops",
         "后勤": "Organisation",
     },
 }
