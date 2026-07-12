@@ -69,7 +69,11 @@ class CategoryTotal:
 class PeriodTotal:
     label: str
     start_date: date
-    total_seconds: int
+    totals_by_category: dict[str, int]
+
+    @property
+    def total_seconds(self) -> int:
+        return sum(self.totals_by_category.values())
 
 
 def utc_now_without_microseconds() -> datetime:
@@ -415,7 +419,7 @@ class FlowmoStore:
 
         start_time, end_time = build_range_bounds(range_name, reference_date)
         day_count = (end_time.date() - start_time.date()).days
-        totals = [0 for _ in range(day_count)]
+        totals = [{category: 0 for category in CATEGORIES} for _ in range(day_count)]
         sessions = self.sessions_between(start_time, end_time)
 
         for session in sessions:
@@ -425,23 +429,23 @@ class FlowmoStore:
                 next_day = datetime.combine(cursor.date() + timedelta(days=1), time.min)
                 segment_end = min(next_day, session_end)
                 index = (cursor.date() - start_time.date()).days
-                totals[index] += int((segment_end - cursor).total_seconds())
+                totals[index][session.category] += int((segment_end - cursor).total_seconds())
                 cursor = segment_end
 
         return [
             PeriodTotal(
                 label=(start_time.date() + timedelta(days=index)).isoformat(),
                 start_date=start_time.date() + timedelta(days=index),
-                total_seconds=seconds,
+                totals_by_category=totals[index],
             )
-            for index, seconds in enumerate(totals)
+            for index, _totals_by_category in enumerate(totals)
         ]
 
     def monthly_totals(self, reference_date: date | None = None) -> list[PeriodTotal]:
         reference_date = reference_date or date.today()
         year_start = datetime(reference_date.year, 1, 1)
         year_end = datetime(reference_date.year + 1, 1, 1)
-        totals = [0 for _ in range(12)]
+        totals = [{category: 0 for category in CATEGORIES} for _ in range(12)]
 
         for session in self.sessions_between(year_start, year_end):
             cursor = max(session.start_time, year_start)
@@ -452,14 +456,14 @@ class FlowmoStore:
                 else:
                     next_month = datetime(cursor.year, cursor.month + 1, 1)
                 segment_end = min(next_month, session_end)
-                totals[cursor.month - 1] += int((segment_end - cursor).total_seconds())
+                totals[cursor.month - 1][session.category] += int((segment_end - cursor).total_seconds())
                 cursor = segment_end
 
         return [
             PeriodTotal(
                 label=f"{month:02d}",
                 start_date=date(reference_date.year, month, 1),
-                total_seconds=totals[month - 1],
+                totals_by_category=totals[month - 1],
             )
             for month in range(1, 13)
         ]

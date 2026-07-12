@@ -820,10 +820,10 @@ class FlowmoApp(tk.Tk):
         if range_name == "week":
             rows = self.store.daily_totals("week", reference_date)
             labels = [WEEKDAYS[self.language][row.start_date.weekday()] for row in rows]
-            self._draw_simple_bar_chart(
+            self._draw_period_stacked_bar_chart(
                 canvas,
                 labels,
-                [row.total_seconds for row in rows],
+                [row.totals_by_category for row in rows],
                 self.t("daily_work_distribution", title=title_label),
             )
             return
@@ -835,15 +835,15 @@ class FlowmoApp(tk.Tk):
 
         if range_name == "year":
             rows = self.store.monthly_totals(reference_date)
-            self._draw_simple_bar_chart(
+            self._draw_period_stacked_bar_chart(
                 canvas,
                 [self.t("month_short", value=int(row.label)) for row in rows],
-                [row.total_seconds for row in rows],
+                [row.totals_by_category for row in rows],
                 self.t("monthly_work_distribution", title=title_label),
             )
 
-    def _draw_simple_bar_chart(
-        self, canvas: tk.Canvas, labels: list[str], values: list[int], title: str
+    def _draw_period_stacked_bar_chart(
+        self, canvas: tk.Canvas, labels: list[str], rows: list[dict[str, int]], title: str
     ) -> None:
         canvas.delete("all")
         width = max(canvas.winfo_width(), 1)
@@ -856,7 +856,8 @@ class FlowmoApp(tk.Tk):
         chart_height = max(height - margin_top - margin_bottom, 1)
 
         canvas.create_text(16, 18, anchor="w", text=title, font=("Segoe UI", 12, "bold"))
-        max_seconds = max(values, default=0)
+        totals = [sum(row.values()) for row in rows]
+        max_seconds = max(totals, default=0)
         if max_seconds <= 0:
             self._draw_empty_state(canvas, width, height, self.t("no_records"))
             return
@@ -878,13 +879,27 @@ class FlowmoApp(tk.Tk):
                 fill="#555555",
             )
 
-        gap = 8 if len(values) <= 7 else 5
-        bar_width = max((chart_width - gap * (len(values) - 1)) / max(len(values), 1), 3)
-        for index, value in enumerate(values):
+        gap = 8 if len(rows) <= 7 else 5
+        bar_width = max((chart_width - gap * (len(rows) - 1)) / max(len(rows), 1), 3)
+        for index, totals_by_category in enumerate(rows):
             x0 = margin_left + index * (bar_width + gap)
             x1 = x0 + bar_width
-            y0 = y_axis_bottom - (value / max_seconds) * chart_height
-            canvas.create_rectangle(x0, y0, x1, y_axis_bottom, fill="#4F9A9A", outline="#ffffff")
+            y_cursor = y_axis_bottom
+            for category in CATEGORIES:
+                seconds = totals_by_category.get(category, 0)
+                if seconds <= 0:
+                    continue
+                segment_height = seconds / max_seconds * chart_height
+                y0 = y_cursor - segment_height
+                canvas.create_rectangle(
+                    x0,
+                    y0,
+                    x1,
+                    y_cursor,
+                    fill=CATEGORY_COLORS[category],
+                    outline="#ffffff",
+                )
+                y_cursor = y0
             canvas.create_text(
                 (x0 + x1) / 2,
                 y_axis_bottom + 14,
@@ -893,7 +908,7 @@ class FlowmoApp(tk.Tk):
                 fill="#444444",
             )
 
-        busiest_index = max(range(len(values)), key=lambda index: values[index])
+        busiest_index = max(range(len(totals)), key=lambda index: totals[index])
         canvas.create_text(
             margin_left,
             height - 22,
@@ -901,7 +916,7 @@ class FlowmoApp(tk.Tk):
             text=self.t(
                 "busiest_period",
                 label=labels[busiest_index],
-                duration=self._format_hours(values[busiest_index]),
+                duration=self._format_hours(totals[busiest_index]),
             ),
             font=("Segoe UI", 9),
             fill="#333333",
@@ -1008,9 +1023,9 @@ class FlowmoApp(tk.Tk):
         height = max(canvas.winfo_height(), 1)
 
         canvas.create_text(
-            16,
+            width / 2,
             18,
-            anchor="w",
+            anchor="center",
             text=self.t("category_share", title=title_label),
             font=("Segoe UI", 12, "bold"),
         )
@@ -1021,16 +1036,19 @@ class FlowmoApp(tk.Tk):
             return
 
         canvas.create_text(
-            16,
+            width / 2,
             42,
-            anchor="w",
+            anchor="center",
             text=self.t("total_work", duration=self._format_hours(total_seconds)),
             font=("Segoe UI", 10),
             fill="#333333",
         )
 
-        diameter = min(width * 0.52, height * 0.48, 220)
-        x0 = 24
+        legend_width = min(220, max(width * 0.34, 120))
+        legend_gap = 24
+        diameter = min(width * 0.42, height * 0.48, 220)
+        group_width = diameter + legend_gap + legend_width
+        x0 = max((width - group_width) / 2, 16)
         y0 = 76
         x1 = x0 + diameter
         y1 = y0 + diameter
@@ -1060,8 +1078,8 @@ class FlowmoApp(tk.Tk):
                 )
                 start_angle -= extent
 
-        legend_x = x1 + 24
-        legend_y = 62
+        legend_x = x1 + legend_gap
+        legend_y = y0 + max((diameter - len(category_rows) * 28) / 2, 0)
         for index, row in enumerate(category_rows):
             y = legend_y + index * 28
             percent = row.total_seconds / total_seconds * 100
