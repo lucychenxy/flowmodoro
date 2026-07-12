@@ -1031,7 +1031,8 @@ class FlowmoApp(tk.Tk):
             font=("Segoe UI", 12, "bold"),
         )
 
-        total_seconds = sum(row.total_seconds for row in category_rows)
+        sorted_rows = sorted(category_rows, key=lambda row: row.total_seconds, reverse=True)
+        total_seconds = sum(row.total_seconds for row in sorted_rows)
         if total_seconds <= 0:
             self._draw_empty_state(canvas, width, height, self.t("no_records"))
             return
@@ -1054,18 +1055,18 @@ class FlowmoApp(tk.Tk):
         x1 = x0 + diameter
         y1 = y0 + diameter
 
-        if len(category_rows) == 1:
+        if len(sorted_rows) == 1:
             canvas.create_oval(
                 x0,
                 y0,
                 x1,
                 y1,
-                fill=CATEGORY_COLORS[category_rows[0].category],
+                fill=CATEGORY_COLORS[sorted_rows[0].category],
                 outline="#ffffff",
             )
         else:
             start_angle = 90
-            for row in category_rows:
+            for row in sorted_rows:
                 extent = 360 * row.total_seconds / total_seconds
                 canvas.create_arc(
                     x0,
@@ -1080,8 +1081,8 @@ class FlowmoApp(tk.Tk):
                 start_angle -= extent
 
         legend_x = x1 + legend_gap
-        legend_y = y0 + max((diameter - len(category_rows) * 28) / 2, 0)
-        for index, row in enumerate(category_rows):
+        legend_y = y0 + max((diameter - len(sorted_rows) * 28) / 2, 0)
+        for index, row in enumerate(sorted_rows):
             y = legend_y + index * 28
             percent = row.total_seconds / total_seconds * 100
             canvas.create_rectangle(
