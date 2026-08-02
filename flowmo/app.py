@@ -996,6 +996,7 @@ class FlowmoApp(tk.Tk):
                 x1 = x0 + cell_size
                 y1 = y0 + cell_size
                 row = row_by_date.get(day_value)
+                text_color = "#1f2933"
                 if row is None:
                     fill = "#f4f4f4"
                     text = ""
@@ -1003,7 +1004,9 @@ class FlowmoApp(tk.Tk):
                     fill = "#eeeeee"
                     text = ""
                 else:
-                    fill = self._crest_color(row.total_seconds / max_seconds if max_seconds else 0)
+                    value = row.total_seconds / max_seconds if max_seconds else 0
+                    fill = self._crest_color(value)
+                    text_color = self._heatmap_text_color(value)
                     text = str(day_value.day)
                 canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#ffffff")
                 if text:
@@ -1012,7 +1015,7 @@ class FlowmoApp(tk.Tk):
                         y0 + 12,
                         text=text,
                         font=("Segoe UI", 8),
-                        fill="#1f2933",
+                        fill=text_color,
                     )
                     if row and cell_size >= 34:
                         canvas.create_text(
@@ -1020,7 +1023,7 @@ class FlowmoApp(tk.Tk):
                             y1 - 12,
                             text=self._format_hours(row.total_seconds),
                             font=("Segoe UI", 7),
-                            fill="#1f2933",
+                            fill=text_color,
                         )
 
     def _draw_daily_grid_heatmap(self, canvas: tk.Canvas, rows, title_label: str) -> None:
@@ -1061,14 +1064,16 @@ class FlowmoApp(tk.Tk):
             y0 = grid_top + row_index * (cell_size + cell_gap)
             x1 = x0 + cell_size
             y1 = y0 + cell_size
-            fill = self._crest_color(row.total_seconds / max_seconds if max_seconds else 0)
+            value = row.total_seconds / max_seconds if max_seconds else 0
+            fill = self._crest_color(value)
+            text_color = self._heatmap_text_color(value)
             canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#ffffff")
             canvas.create_text(
                 (x0 + x1) / 2,
                 y0 + 12,
                 text=f"{row.start_date.month}/{row.start_date.day}",
                 font=("Segoe UI", 8),
-                fill="#1f2933",
+                fill=text_color,
             )
             if cell_size >= 34:
                 canvas.create_text(
@@ -1076,8 +1081,18 @@ class FlowmoApp(tk.Tk):
                     y1 - 12,
                     text=self._format_hours(row.total_seconds),
                     font=("Segoe UI", 7),
-                    fill="#1f2933",
+                    fill=text_color,
                 )
+
+    def _heatmap_text_color(self, value: float) -> str:
+        value = max(0.0, min(1.0, value))
+        if value <= 0.5:
+            ratio = value / 0.5
+            channel = int(31 + (107 - 31) * ratio)
+        else:
+            ratio = (value - 0.5) / 0.5
+            channel = int(107 + (255 - 107) * ratio)
+        return f"#{channel:02x}{channel:02x}{channel:02x}"
 
     def _crest_color(self, value: float) -> str:
         value = max(0.0, min(1.0, value))
