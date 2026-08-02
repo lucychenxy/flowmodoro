@@ -3,7 +3,14 @@ import unittest
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from flowmo.db import CATEGORIES, FlowmoStore, build_range_bounds, build_time_buckets, format_duration
+from flowmo.db import (
+    CATEGORIES,
+    FlowmoStore,
+    build_range_bounds,
+    build_recent_range_bounds,
+    build_time_buckets,
+    format_duration,
+)
 
 
 class FlowmoStoreTests(unittest.TestCase):
@@ -137,6 +144,18 @@ class FlowmoStoreTests(unittest.TestCase):
         self.assertEqual(rows[0].category, "会议")
         self.assertEqual(rows[0].total_seconds, 3600)
 
+    def test_recent_category_distribution_uses_rolling_window(self) -> None:
+        reference_date = datetime(2026, 7, 10).date()
+        inside = datetime(2026, 7, 4, 9, 0, 0)
+        outside = datetime(2026, 7, 3, 9, 0, 0)
+        self.store.add_session(CATEGORIES[0], "Inside 7 days", inside, inside + timedelta(hours=1), coefficient=5)
+        self.store.add_session(CATEGORIES[0], "Outside 7 days", outside, outside + timedelta(hours=1), coefficient=5)
+
+        rows = self.store.recent_category_distribution("week", reference_date=reference_date)
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].total_seconds, 3600)
+
     def test_daily_totals_for_week_split_by_day(self) -> None:
         monday = datetime(2026, 7, 6, 9, 0, 0)
         tuesday = datetime(2026, 7, 7, 10, 0, 0)
@@ -177,6 +196,27 @@ class FlowmoStoreTests(unittest.TestCase):
         self.assertEqual(rows[1].total_seconds, 3600)
         self.assertEqual(rows[1].totals_by_category[CATEGORIES[0]], 3600)
 
+    def test_recent_daily_totals_for_month_returns_thirty_days(self) -> None:
+        reference_date = datetime(2026, 8, 3).date()
+        rows = self.store.recent_daily_totals("month", reference_date=reference_date)
+
+        self.assertEqual(len(rows), 30)
+        self.assertEqual(rows[0].start_date.isoformat(), "2026-07-05")
+        self.assertEqual(rows[-1].start_date.isoformat(), "2026-08-03")
+
+    def test_recent_monthly_totals_uses_last_year_window(self) -> None:
+        reference_date = datetime(2026, 8, 3).date()
+        inside = datetime(2025, 8, 4, 9, 0, 0)
+        outside = datetime(2025, 8, 3, 9, 0, 0)
+        self.store.add_session(CATEGORIES[0], "Inside year", inside, inside + timedelta(hours=1), coefficient=5)
+        self.store.add_session(CATEGORIES[0], "Outside year", outside, outside + timedelta(hours=1), coefficient=5)
+
+        rows = self.store.recent_monthly_totals(reference_date=reference_date)
+
+        self.assertEqual(rows[0].start_date.isoformat(), "2025-08-01")
+        self.assertEqual(rows[-1].start_date.isoformat(), "2026-08-01")
+        self.assertEqual(sum(row.total_seconds for row in rows), 3600)
+
 
 class FormattingTests(unittest.TestCase):
     def test_format_duration(self) -> None:
@@ -194,6 +234,20 @@ class FormattingTests(unittest.TestCase):
 
         self.assertEqual(start.date().isoformat(), "2026-06-29")
         self.assertEqual(end.date().isoformat(), "2026-07-06")
+
+    def test_build_recent_range_bounds_uses_rolling_windows(self) -> None:
+        reference_date = datetime(2026, 8, 3).date()
+
+        week_start, week_end = build_recent_range_bounds("week", reference_date)
+        month_start, month_end = build_recent_range_bounds("month", reference_date)
+        year_start, year_end = build_recent_range_bounds("year", reference_date)
+
+        self.assertEqual(week_start.date().isoformat(), "2026-07-28")
+        self.assertEqual(week_end.date().isoformat(), "2026-08-04")
+        self.assertEqual(month_start.date().isoformat(), "2026-07-05")
+        self.assertEqual(month_end.date().isoformat(), "2026-08-04")
+        self.assertEqual(year_start.date().isoformat(), "2025-08-04")
+        self.assertEqual(year_end.date().isoformat(), "2026-08-04")
 
 
 if __name__ == "__main__":

@@ -667,6 +667,7 @@ class FlowmoApp(tk.Tk):
             range_name,
             None,
             self.t(RANGE_LABEL_KEYS[range_name]),
+            use_recent=True,
         )
 
     def _draw_calendar(self) -> None:
@@ -712,14 +713,19 @@ class FlowmoApp(tk.Tk):
         range_name: str,
         reference_date: date | None,
         title_label: str,
+        use_recent: bool = False,
     ) -> None:
-        bucket_rows = self.store.time_bucket_distribution(range_name, reference_date)
-        category_rows = self.store.category_distribution(range_name, reference_date)
+        if use_recent:
+            bucket_rows = self.store.recent_time_bucket_distribution(range_name, reference_date)
+            category_rows = self.store.recent_category_distribution(range_name, reference_date)
+        else:
+            bucket_rows = self.store.time_bucket_distribution(range_name, reference_date)
+            category_rows = self.store.category_distribution(range_name, reference_date)
         self._draw_stacked_bar_chart(bar_canvas, bucket_rows, title_label)
         if range_name == "day":
             period_canvas.delete("all")
         else:
-            self._draw_period_chart(period_canvas, range_name, reference_date, title_label)
+            self._draw_period_chart(period_canvas, range_name, reference_date, title_label, use_recent)
         self._draw_pie_chart(pie_canvas, category_rows, title_label)
 
     def _draw_stacked_bar_chart(self, canvas: tk.Canvas, bucket_rows, title_label: str) -> None:
@@ -817,9 +823,14 @@ class FlowmoApp(tk.Tk):
         range_name: str,
         reference_date: date | None,
         title_label: str,
+        use_recent: bool = False,
     ) -> None:
         if range_name == "week":
-            rows = self.store.daily_totals("week", reference_date)
+            rows = (
+                self.store.recent_daily_totals("week", reference_date)
+                if use_recent
+                else self.store.daily_totals("week", reference_date)
+            )
             labels = [WEEKDAYS[self.language][row.start_date.weekday()] for row in rows]
             self._draw_period_stacked_bar_chart(
                 canvas,
@@ -830,15 +841,31 @@ class FlowmoApp(tk.Tk):
             return
 
         if range_name == "month":
-            rows = self.store.daily_totals("month", reference_date)
-            self._draw_month_calendar_heatmap(canvas, rows, title_label)
+            rows = (
+                self.store.recent_daily_totals("month", reference_date)
+                if use_recent
+                else self.store.daily_totals("month", reference_date)
+            )
+            if use_recent:
+                self._draw_daily_grid_heatmap(canvas, rows, title_label)
+            else:
+                self._draw_month_calendar_heatmap(canvas, rows, title_label)
             return
 
         if range_name == "year":
-            rows = self.store.monthly_totals(reference_date)
+            rows = (
+                self.store.recent_monthly_totals(reference_date)
+                if use_recent
+                else self.store.monthly_totals(reference_date)
+            )
             self._draw_period_stacked_bar_chart(
                 canvas,
-                [self.t("month_short", value=int(row.label)) for row in rows],
+                [
+                    f"{row.start_date.month}/{str(row.start_date.year)[-2:]}"
+                    if use_recent
+                    else self.t("month_short", value=row.start_date.month)
+                    for row in rows
+                ],
                 [row.totals_by_category for row in rows],
                 self.t("monthly_work_distribution", title=title_label),
             )
@@ -995,6 +1022,62 @@ class FlowmoApp(tk.Tk):
                             font=("Segoe UI", 7),
                             fill="#1f2933",
                         )
+
+    def _draw_daily_grid_heatmap(self, canvas: tk.Canvas, rows, title_label: str) -> None:
+        canvas.delete("all")
+        width = max(canvas.winfo_width(), 1)
+        height = max(canvas.winfo_height(), 1)
+        canvas.create_text(
+            16,
+            18,
+            anchor="w",
+            text=self.t("daily_calendar_heatmap", title=title_label),
+            font=("Segoe UI", 12, "bold"),
+        )
+
+        if not rows:
+            self._draw_empty_state(canvas, width, height, self.t("no_records"))
+            return
+
+        max_seconds = max((row.total_seconds for row in rows), default=0)
+        grid_left = 18
+        grid_top = 56
+        available_width = max(width - 36, 1)
+        available_height = max(height - grid_top - 36, 1)
+        cell_gap = 4
+        column_count = 7
+        row_count = (len(rows) + column_count - 1) // column_count
+        cell_size = max(
+            min(
+                (available_width - cell_gap * (column_count - 1)) / column_count,
+                (available_height - cell_gap * max(row_count - 1, 0)) / max(row_count, 1),
+            ),
+            18,
+        )
+
+        for index, row in enumerate(rows):
+            row_index, column_index = divmod(index, column_count)
+            x0 = grid_left + column_index * (cell_size + cell_gap)
+            y0 = grid_top + row_index * (cell_size + cell_gap)
+            x1 = x0 + cell_size
+            y1 = y0 + cell_size
+            fill = self._crest_color(row.total_seconds / max_seconds if max_seconds else 0)
+            canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#ffffff")
+            canvas.create_text(
+                (x0 + x1) / 2,
+                y0 + 12,
+                text=f"{row.start_date.month}/{row.start_date.day}",
+                font=("Segoe UI", 8),
+                fill="#1f2933",
+            )
+            if cell_size >= 34:
+                canvas.create_text(
+                    (x0 + x1) / 2,
+                    y1 - 12,
+                    text=self._format_hours(row.total_seconds),
+                    font=("Segoe UI", 7),
+                    fill="#1f2933",
+                )
 
     def _crest_color(self, value: float) -> str:
         value = max(0.0, min(1.0, value))

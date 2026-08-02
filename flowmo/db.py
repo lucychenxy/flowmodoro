@@ -376,6 +376,17 @@ class FlowmoStore:
         self, range_name: str, reference_date: date | None = None
     ) -> list[TimeBucketRow]:
         start_time, end_time = build_range_bounds(range_name, reference_date)
+        return self._time_bucket_distribution_between(start_time, end_time)
+
+    def recent_time_bucket_distribution(
+        self, range_name: str, reference_date: date | None = None
+    ) -> list[TimeBucketRow]:
+        start_time, end_time = build_recent_range_bounds(range_name, reference_date)
+        return self._time_bucket_distribution_between(start_time, end_time)
+
+    def _time_bucket_distribution_between(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[TimeBucketRow]:
         rows = [
             TimeBucketRow(label=f"{hour:02d}:00", totals_by_category={category: 0 for category in CATEGORIES})
             for hour in range(24)
@@ -398,6 +409,17 @@ class FlowmoStore:
         self, range_name: str, reference_date: date | None = None
     ) -> list[CategoryTotal]:
         start_time, end_time = build_range_bounds(range_name, reference_date)
+        return self._category_distribution_between(start_time, end_time)
+
+    def recent_category_distribution(
+        self, range_name: str, reference_date: date | None = None
+    ) -> list[CategoryTotal]:
+        start_time, end_time = build_recent_range_bounds(range_name, reference_date)
+        return self._category_distribution_between(start_time, end_time)
+
+    def _category_distribution_between(
+        self, start_time: datetime, end_time: datetime
+    ) -> list[CategoryTotal]:
         totals = {category: 0 for category in CATEGORIES}
         for session in self.sessions_between(start_time, end_time):
             overlap_start = max(session.start_time, start_time)
@@ -419,6 +441,18 @@ class FlowmoStore:
             raise ValueError("range_name must be one of: week, month")
 
         start_time, end_time = build_range_bounds(range_name, reference_date)
+        return self._daily_totals_between(start_time, end_time)
+
+    def recent_daily_totals(
+        self, range_name: str, reference_date: date | None = None
+    ) -> list[PeriodTotal]:
+        if range_name not in {"week", "month"}:
+            raise ValueError("range_name must be one of: week, month")
+
+        start_time, end_time = build_recent_range_bounds(range_name, reference_date)
+        return self._daily_totals_between(start_time, end_time)
+
+    def _daily_totals_between(self, start_time: datetime, end_time: datetime) -> list[PeriodTotal]:
         day_count = (end_time.date() - start_time.date()).days
         totals = [{category: 0 for category in CATEGORIES} for _ in range(day_count)]
         sessions = self.sessions_between(start_time, end_time)
@@ -446,27 +480,48 @@ class FlowmoStore:
         reference_date = reference_date or date.today()
         year_start = datetime(reference_date.year, 1, 1)
         year_end = datetime(reference_date.year + 1, 1, 1)
-        totals = [{category: 0 for category in CATEGORIES} for _ in range(12)]
+        return self._monthly_totals_between(year_start, year_end)
 
-        for session in self.sessions_between(year_start, year_end):
-            cursor = max(session.start_time, year_start)
-            session_end = min(session.end_time, year_end)
+    def recent_monthly_totals(self, reference_date: date | None = None) -> list[PeriodTotal]:
+        start_time, end_time = build_recent_range_bounds("year", reference_date)
+        return self._monthly_totals_between(start_time, end_time)
+
+    def _monthly_totals_between(self, start_time: datetime, end_time: datetime) -> list[PeriodTotal]:
+        month_starts = []
+        cursor_month = date(start_time.year, start_time.month, 1)
+        end_month = date((end_time - timedelta(seconds=1)).year, (end_time - timedelta(seconds=1)).month, 1)
+        while cursor_month <= end_month:
+            month_starts.append(cursor_month)
+            if cursor_month.month == 12:
+                cursor_month = date(cursor_month.year + 1, 1, 1)
+            else:
+                cursor_month = date(cursor_month.year, cursor_month.month + 1, 1)
+
+        totals = [{category: 0 for category in CATEGORIES} for _ in month_starts]
+        month_index = {month_start: index for index, month_start in enumerate(month_starts)}
+
+        for session in self.sessions_between(start_time, end_time):
+            cursor = max(session.start_time, start_time)
+            session_end = min(session.end_time, end_time)
             while cursor < session_end:
                 if cursor.month == 12:
                     next_month = datetime(cursor.year + 1, 1, 1)
                 else:
                     next_month = datetime(cursor.year, cursor.month + 1, 1)
                 segment_end = min(next_month, session_end)
-                totals[cursor.month - 1][session.category] += int((segment_end - cursor).total_seconds())
+                month_start = date(cursor.year, cursor.month, 1)
+                totals[month_index[month_start]][session.category] += int(
+                    (segment_end - cursor).total_seconds()
+                )
                 cursor = segment_end
 
         return [
             PeriodTotal(
-                label=f"{month:02d}",
-                start_date=date(reference_date.year, month, 1),
-                totals_by_category=totals[month - 1],
+                label=month_start.isoformat(),
+                start_date=month_start,
+                totals_by_category=totals[index],
             )
-            for month in range(1, 13)
+            for index, month_start in enumerate(month_starts)
         ]
 
     def _row_to_session(self, row: sqlite3.Row) -> WorkSession:
@@ -531,3 +586,26 @@ def build_range_bounds(
         return datetime(reference_date.year, 1, 1), datetime(reference_date.year + 1, 1, 1)
 
     raise ValueError("range_name must be one of: day, week, month, year")
+
+
+def build_recent_range_bounds(
+    range_name: str, reference_date: date | None = None
+) -> tuple[datetime, datetime]:
+    reference_date = reference_date or date.today()
+    end_time = datetime.combine(reference_date + timedelta(days=1), time.min)
+
+    if range_name == "day":
+        start_time = datetime.combine(reference_date, time.min)
+        return start_time, end_time
+
+    days_by_range = {
+        "week": 7,
+        "month": 30,
+        "year": 365,
+    }
+    days = days_by_range.get(range_name)
+    if days is None:
+        raise ValueError("range_name must be one of: day, week, month, year")
+
+    start_date = reference_date - timedelta(days=days - 1)
+    return datetime.combine(start_date, time.min), end_time
