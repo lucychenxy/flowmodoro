@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+import math
 import tkinter as tk
 from datetime import date, datetime, timedelta
 from tkinter import messagebox, ttk
@@ -1086,11 +1087,13 @@ class FlowmoApp(tk.Tk):
 
     def _heatmap_text_color(self, value: float) -> str:
         value = max(0.0, min(1.0, value))
-        if value <= 0.5:
-            ratio = value / 0.5
+        curve = 3.0
+        curved_value = (math.exp(curve * value) - 1) / (math.exp(curve) - 1)
+        if curved_value <= 0.5:
+            ratio = curved_value / 0.5
             channel = int(31 + (107 - 31) * ratio)
         else:
-            ratio = (value - 0.5) / 0.5
+            ratio = (curved_value - 0.5) / 0.5
             channel = int(107 + (255 - 107) * ratio)
         return f"#{channel:02x}{channel:02x}{channel:02x}"
 
