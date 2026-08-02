@@ -1086,7 +1086,7 @@ class FlowmoApp(tk.Tk):
 
     def _heatmap_text_color(self, value: float) -> str:
         value = max(0.0, min(1.0, value))
-        curved_value = value**0.45
+        curved_value = value**0.6
         if curved_value <= 0.5:
             ratio = curved_value / 0.5
             channel = int(31 + (107 - 31) * ratio)
