@@ -1043,13 +1043,17 @@ class FlowmoApp(tk.Tk):
             return
 
         max_seconds = max((row.total_seconds for row in rows), default=0)
+        row_by_date = {row.start_date: row for row in rows}
+        grid_start = rows[0].start_date - timedelta(days=rows[0].start_date.weekday())
+        grid_end = rows[-1].start_date + timedelta(days=6 - rows[-1].start_date.weekday())
+        grid_day_count = (grid_end - grid_start).days + 1
         grid_left = 18
         grid_top = 56
         available_width = max(width - 36, 1)
         available_height = max(height - grid_top - 36, 1)
         cell_gap = 4
         column_count = 7
-        row_count = (len(rows) + column_count - 1) // column_count
+        row_count = (grid_day_count + column_count - 1) // column_count
         cell_size = max(
             min(
                 (available_width - cell_gap * (column_count - 1)) / column_count,
@@ -1058,12 +1062,22 @@ class FlowmoApp(tk.Tk):
             18,
         )
 
-        for index, row in enumerate(rows):
+        for index, weekday in enumerate(WEEKDAYS[self.language]):
+            x = grid_left + index * (cell_size + cell_gap) + cell_size / 2
+            canvas.create_text(x, grid_top - 14, text=weekday, font=("Segoe UI", 8), fill="#555555")
+
+        for index in range(grid_day_count):
             row_index, column_index = divmod(index, column_count)
             x0 = grid_left + column_index * (cell_size + cell_gap)
             y0 = grid_top + row_index * (cell_size + cell_gap)
             x1 = x0 + cell_size
             y1 = y0 + cell_size
+            day_value = grid_start + timedelta(days=index)
+            row = row_by_date.get(day_value)
+            if row is None:
+                canvas.create_rectangle(x0, y0, x1, y1, fill="#eeeeee", outline="#ffffff")
+                continue
+
             value = row.total_seconds / max_seconds if max_seconds else 0
             fill = self._crest_color(value)
             text_color = self._heatmap_text_color(value)
@@ -1086,7 +1100,7 @@ class FlowmoApp(tk.Tk):
 
     def _heatmap_text_color(self, value: float) -> str:
         value = max(0.0, min(1.0, value))
-        curved_value = value**0.6
+        curved_value = value**0.42
         if curved_value <= 0.5:
             ratio = curved_value / 0.5
             channel = int(31 + (107 - 31) * ratio)
