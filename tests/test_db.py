@@ -33,6 +33,51 @@ class FlowmoStoreTests(unittest.TestCase):
         self.assertFalse(session.category_edit_used)
         self.assertFalse(session.end_time_edit_used)
 
+    def test_active_session_is_recovered_using_last_seen_time(self) -> None:
+        start = datetime(2026, 11, 2, 9, 0, 0)
+        last_seen = start + timedelta(minutes=37)
+        self.store.save_active_session("写作", "Draft paper", start, coefficient=5)
+        self.store.update_active_session("Draft paper section", last_seen, coefficient=5)
+
+        recovered = self.store.finalize_active_session()
+
+        self.assertIsNotNone(recovered)
+        self.assertEqual(recovered.category, "写作")
+        self.assertEqual(recovered.task, "Draft paper section")
+        self.assertEqual(recovered.end_time, last_seen)
+        self.assertEqual(recovered.duration_seconds, 37 * 60)
+        self.assertEqual(recovered.break_seconds, 444)
+        self.assertIsNone(self.store.get_active_session())
+        self.assertIsNone(self.store.finalize_active_session())
+
+    def test_active_session_can_be_finalized_at_explicit_close_time(self) -> None:
+        start = datetime(2026, 11, 2, 9, 0, 0)
+        end = start + timedelta(hours=2)
+        self.store.save_active_session("实验", "Initial task", start, coefficient=4)
+
+        saved = self.store.finalize_active_session(end_time=end, task="Final task")
+
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved.task, "Final task")
+        self.assertEqual(saved.duration_seconds, 7200)
+        self.assertEqual(saved.break_seconds, 1800)
+
+    def test_active_session_survives_database_reopen(self) -> None:
+        database_path = Path(self.temp_dir.name) / "flowmo.sqlite3"
+        start = datetime(2026, 11, 2, 9, 0, 0)
+        last_seen = start + timedelta(minutes=12)
+        self.store.save_active_session("阅读", "Read paper", start, coefficient=5)
+        self.store.update_active_session("Read paper", last_seen, coefficient=5)
+        self.store.close()
+
+        self.store = FlowmoStore(database_path)
+        recovered = self.store.finalize_active_session()
+
+        self.assertIsNotNone(recovered)
+        self.assertEqual(recovered.start_time, start)
+        self.assertEqual(recovered.end_time, last_seen)
+        self.assertEqual(len(self.store.recent_sessions()), 1)
+
     def test_session_category_can_be_edited_once(self) -> None:
         start = datetime(2026, 7, 3, 9, 0, 0)
         session = self.store.add_session(

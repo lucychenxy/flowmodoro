@@ -36,6 +36,15 @@ class WorkSession:
 
 
 @dataclass(frozen=True)
+class ActiveSession:
+    category: str
+    task: str
+    start_time: datetime
+    last_seen_time: datetime
+    coefficient: float
+
+
+@dataclass(frozen=True)
 class SummaryRow:
     period: str
     category: str
@@ -131,6 +140,18 @@ class FlowmoStore:
             )
             self.connection.execute(
                 """
+                CREATE TABLE IF NOT EXISTS active_session (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    category TEXT NOT NULL,
+                    task TEXT NOT NULL,
+                    start_time TEXT NOT NULL,
+                    last_seen_time TEXT NOT NULL,
+                    coefficient REAL NOT NULL
+                )
+                """
+            )
+            self.connection.execute(
+                """
                 INSERT OR IGNORE INTO settings (key, value)
                 VALUES ('break_coefficient', ?)
                 """,
@@ -182,6 +203,116 @@ class FlowmoStore:
                 """,
                 (key, value),
             )
+
+    def save_active_session(
+        self,
+        category: str,
+        task: str,
+        start_time: datetime,
+        coefficient: float,
+    ) -> None:
+        if category not in CATEGORIES:
+            raise ValueError(f"未知工作类别: {category}")
+        if coefficient <= MIN_BREAK_COEFFICIENT:
+            raise ValueError("休息系数必须大于 3。")
+        timestamp = start_time.isoformat(timespec="seconds")
+        with self.connection:
+            self.connection.execute(
+                """
+                INSERT INTO active_session (
+                    id, category, task, start_time, last_seen_time, coefficient
+                )
+                VALUES (1, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    category = excluded.category,
+                    task = excluded.task,
+                    start_time = excluded.start_time,
+                    last_seen_time = excluded.last_seen_time,
+                    coefficient = excluded.coefficient
+                """,
+                (category, task.strip(), timestamp, timestamp, coefficient),
+            )
+
+    def update_active_session(
+        self,
+        task: str,
+        last_seen_time: datetime,
+        coefficient: float,
+    ) -> None:
+        if coefficient <= MIN_BREAK_COEFFICIENT:
+            raise ValueError("休息系数必须大于 3。")
+        with self.connection:
+            self.connection.execute(
+                """
+                UPDATE active_session
+                SET task = ?, last_seen_time = ?, coefficient = ?
+                WHERE id = 1
+                """,
+                (
+                    task.strip(),
+                    last_seen_time.isoformat(timespec="seconds"),
+                    coefficient,
+                ),
+            )
+
+    def get_active_session(self) -> ActiveSession | None:
+        row = self.connection.execute(
+            "SELECT * FROM active_session WHERE id = 1"
+        ).fetchone()
+        if row is None:
+            return None
+        return ActiveSession(
+            category=str(row["category"]),
+            task=str(row["task"]),
+            start_time=datetime.fromisoformat(row["start_time"]),
+            last_seen_time=datetime.fromisoformat(row["last_seen_time"]),
+            coefficient=float(row["coefficient"]),
+        )
+
+    def finalize_active_session(
+        self,
+        end_time: datetime | None = None,
+        task: str | None = None,
+    ) -> WorkSession | None:
+        active = self.get_active_session()
+        if active is None:
+            return None
+
+        final_end_time = end_time or active.last_seen_time
+        if final_end_time <= active.start_time:
+            final_end_time = active.start_time + timedelta(seconds=1)
+        final_task = active.task if task is None else task.strip()
+        duration_seconds = int((final_end_time - active.start_time).total_seconds())
+        break_seconds = int(duration_seconds / active.coefficient)
+
+        with self.connection:
+            cursor = self.connection.execute(
+                """
+                INSERT INTO sessions (
+                    category, task, start_time, end_time, duration_seconds, break_seconds
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    active.category,
+                    final_task,
+                    active.start_time.isoformat(timespec="seconds"),
+                    final_end_time.isoformat(timespec="seconds"),
+                    duration_seconds,
+                    break_seconds,
+                ),
+            )
+            self.connection.execute("DELETE FROM active_session WHERE id = 1")
+
+        return WorkSession(
+            id=int(cursor.lastrowid),
+            category=active.category,
+            task=final_task,
+            start_time=active.start_time,
+            end_time=final_end_time,
+            duration_seconds=duration_seconds,
+            break_seconds=break_seconds,
+        )
 
     def add_session(
         self,

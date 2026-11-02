@@ -32,6 +32,14 @@ CATEGORY_COLORS = {
     "后勤": "#76B7B2",
 }
 
+HEATMAP_MAX_SECONDS = 8 * 60 * 60
+ACTIVE_SESSION_HEARTBEAT_SECONDS = 5
+
+
+def heatmap_intensity(total_seconds: int) -> float:
+    return max(0.0, min(total_seconds / HEATMAP_MAX_SECONDS, 1.0))
+
+
 RANGE_LABEL_KEYS = {
     "day": "today",
     "week": "this_week",
@@ -55,8 +63,10 @@ class FlowmoApp(tk.Tk):
         self.minsize(900, 620)
 
         self.store = store or FlowmoStore()
+        self.store.finalize_active_session()
         self.current_start: datetime | None = None
         self.current_category: str | None = None
+        self.last_active_session_snapshot: datetime | None = None
         self.break_remaining_seconds = 0
         self.break_timer_job: str | None = None
         self.category_cell_editor: ttk.Combobox | None = None
@@ -399,9 +409,16 @@ class FlowmoApp(tk.Tk):
             messagebox.showwarning(self.t("choose_category"), self.t("choose_category_message"))
             return
 
-        self._save_coefficient()
+        coefficient = self._save_coefficient()
         self.current_start = utc_now_without_microseconds()
         self.current_category = selected_category
+        self.last_active_session_snapshot = self.current_start
+        self.store.save_active_session(
+            category=selected_category,
+            task=self.task_text.get("1.0", "end").strip(),
+            start_time=self.current_start,
+            coefficient=coefficient,
+        )
         self.break_remaining_seconds = 0
         self.timer_var.set("00:00:00")
         self.status_var.set(
@@ -423,19 +440,28 @@ class FlowmoApp(tk.Tk):
         task = self.task_text.get("1.0", "end").strip()
         coefficient = self._save_coefficient()
         try:
-            session = self.store.add_session(
-                category=self.current_category or category_from_label(self.language, self.category_var.get()),
+            self.store.update_active_session(
                 task=task,
-                start_time=self.current_start,
-                end_time=end_time,
+                last_seen_time=end_time,
                 coefficient=coefficient,
             )
+            session = self.store.finalize_active_session(end_time=end_time, task=task)
+            if session is None:
+                session = self.store.add_session(
+                    category=self.current_category
+                    or category_from_label(self.language, self.category_var.get()),
+                    task=task,
+                    start_time=self.current_start,
+                    end_time=end_time,
+                    coefficient=coefficient,
+                )
         except ValueError as exc:
             messagebox.showerror(self.t("save_error_title"), str(exc))
             return
 
         self.current_start = None
         self.current_category = None
+        self.last_active_session_snapshot = None
         self.category_var.set("")
         self.start_button.configure(state="normal")
         self.stop_button.configure(state="disabled")
@@ -460,8 +486,20 @@ class FlowmoApp(tk.Tk):
 
     def _tick(self) -> None:
         if self.current_start is not None:
-            elapsed = int((utc_now_without_microseconds() - self.current_start).total_seconds())
+            now = utc_now_without_microseconds()
+            elapsed = int((now - self.current_start).total_seconds())
             self.timer_var.set(format_duration(elapsed))
+            if (
+                self.last_active_session_snapshot is None
+                or (now - self.last_active_session_snapshot).total_seconds()
+                >= ACTIVE_SESSION_HEARTBEAT_SECONDS
+            ):
+                self.store.update_active_session(
+                    task=self.task_text.get("1.0", "end").strip(),
+                    last_seen_time=now,
+                    coefficient=self.store.get_break_coefficient(),
+                )
+                self.last_active_session_snapshot = now
         self.after(1000, self._tick)
 
     def _run_break_timer(self) -> None:
@@ -966,7 +1004,6 @@ class FlowmoApp(tk.Tk):
             self._draw_empty_state(canvas, width, height, self.t("no_records"))
             return
 
-        max_seconds = max((row.total_seconds for row in rows), default=0)
         today = date.today()
         month_weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(
             rows[0].start_date.year, rows[0].start_date.month
@@ -1004,7 +1041,7 @@ class FlowmoApp(tk.Tk):
                     fill = "#eeeeee"
                     text = ""
                 else:
-                    value = row.total_seconds / max_seconds if max_seconds else 0
+                    value = heatmap_intensity(row.total_seconds)
                     fill = self._crest_color(value)
                     text_color = self._heatmap_text_color(value)
                     text = str(day_value.day)
@@ -1042,7 +1079,6 @@ class FlowmoApp(tk.Tk):
             self._draw_empty_state(canvas, width, height, self.t("no_records"))
             return
 
-        max_seconds = max((row.total_seconds for row in rows), default=0)
         row_by_date = {row.start_date: row for row in rows}
         grid_start = rows[0].start_date - timedelta(days=rows[0].start_date.weekday())
         grid_end = rows[-1].start_date + timedelta(days=6 - rows[-1].start_date.weekday())
@@ -1078,7 +1114,7 @@ class FlowmoApp(tk.Tk):
                 canvas.create_rectangle(x0, y0, x1, y1, fill="#eeeeee", outline="#ffffff")
                 continue
 
-            value = row.total_seconds / max_seconds if max_seconds else 0
+            value = heatmap_intensity(row.total_seconds)
             fill = self._crest_color(value)
             text_color = self._heatmap_text_color(value)
             canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#ffffff")
@@ -1254,6 +1290,21 @@ class FlowmoApp(tk.Tk):
                 self.t("close_message"),
             )
             if not should_close:
+                return
+            try:
+                end_time = utc_now_without_microseconds()
+                task = self.task_text.get("1.0", "end").strip()
+                self.store.update_active_session(
+                    task=task,
+                    last_seen_time=end_time,
+                    coefficient=self.store.get_break_coefficient(),
+                )
+                self.store.finalize_active_session(
+                    end_time=end_time,
+                    task=task,
+                )
+            except ValueError as exc:
+                messagebox.showerror(self.t("save_error_title"), str(exc))
                 return
         self.store.close()
         self.destroy()
