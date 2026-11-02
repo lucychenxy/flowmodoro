@@ -19,8 +19,8 @@ Current scope:
 
 Most users should install Flowmo from the latest GitHub Release:
 
-1. Open the [Flowmo v.0.0.6 release](https://github.com/lucychenxy/flowmodoro/releases/tag/v.0.0.6).
-2. Download `Flowmo-Setup-v.0.0.6.exe`.
+1. Open the [Flowmo v.0.0.7 release](https://github.com/lucychenxy/flowmodoro/releases/tag/v.0.0.7).
+2. Download `Flowmo-Setup-v.0.0.7.exe`.
 3. Run the installer.
 
 The installer copies Flowmo to your local user programs folder and creates shortcuts.
@@ -58,10 +58,10 @@ The executable is created at `dist/Flowmo.exe`.
 To build a Windows installer yourself:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File packaging\build_windows_installer.ps1 -Version v.0.0.6
+powershell -ExecutionPolicy Bypass -File packaging\build_windows_installer.ps1 -Version v.0.0.7
 ```
 
-The installer is created at `release/Flowmo-Setup-v.0.0.6.exe`.
+The installer is created at `release/Flowmo-Setup-v.0.0.7.exe`.
 
 ## Notes for Future Cross-Platform Work
 
